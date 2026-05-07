@@ -1,0 +1,82 @@
+[tool.poetry]
+name = "bluedev-grantwriter-api"
+version = "0.1.0"
+description = "Bluedev GrantWriter — FastAPI backend (agents, RAG, citations, exports)"
+authors = ["Bluedev <hello@bluedev.io>"]
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# Real dependencies (fastapi, uvicorn, pydantic, anthropic, celery, asyncpg, ...) added in S1.D1.T2.
+
+[tool.poetry.group.dev.dependencies]
+# Real dev deps (pytest, ruff, mypy, ...) added in S1.D1.T2.
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
+
+# ─────────────────────────────────────────────
+# Ruff — formatter + linter (CLAUDE.md mandate)
+# ─────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = [".venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"]
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "B",   # flake8-bugbear
+  "C4",  # flake8-comprehensions
+  "UP",  # pyupgrade
+  "N",   # pep8-naming
+  "SIM", # flake8-simplify
+  "ARG", # flake8-unused-arguments
+  "PL",  # pylint
+  "RUF", # ruff-specific
+]
+ignore = [
+  "E501",   # line-too-long — formatter handles this
+  "PLR0913", # too-many-arguments — FastAPI dep injection
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ARG", "PLR2004"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ─────────────────────────────────────────────
+# Mypy — strict type checking (CLAUDE.md mandate)
+# ─────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+plugins = []
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+# ─────────────────────────────────────────────
+# Pytest
+# ─────────────────────────────────────────────
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers --strict-config"
