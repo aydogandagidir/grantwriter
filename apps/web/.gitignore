@@ -1,0 +1,10 @@
+# Next.js artifacts (in addition to root .gitignore)
+/.next/
+/out/
+next-env.d.ts
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
