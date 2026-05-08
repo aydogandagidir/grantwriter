@@ -21,6 +21,7 @@ celery = { extras = ["redis"], version = "^5.4" }
 redis = "^5.2"
 pyjwt = { extras = ["crypto"], version = "^2.10" }
 python-docx = "^1.1"
+tiktoken = "^0.8"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"

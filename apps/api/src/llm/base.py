@@ -26,6 +26,7 @@ TaskName = Literal[
     "implementation_writer",
     "compliance_reviewer",
     "hallucination_hunter",
+    "rerank",
 ]
 Role = Literal["user", "assistant"]
 
@@ -283,6 +284,16 @@ TASK_ROUTES: dict[TaskName, RouteEntry] = {
         fallback_model="gpt-4o-mini",
         temperature=0.0,
         max_tokens=2048,
+    ),
+    "rerank": RouteEntry(
+        # RAG candidate re-ranking — Sonnet-class is plenty for ordering 20
+        # short chunks; deterministic temperature so order is reproducible.
+        primary_provider="claude",
+        primary_model="claude-sonnet-4-6",
+        fallback_provider="openai",
+        fallback_model="gpt-4o-mini",
+        temperature=0.0,
+        max_tokens=512,
     ),
 }
 
