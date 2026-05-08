@@ -24,9 +24,21 @@ def load_prompt(*, programme: str, agent: str, version: str = "v1") -> str:
     """
 
     path = _PROMPTS_DIR / programme / agent / f"{version}.md"
-    if not path.is_file():
-        raise FileNotFoundError(f"Prompt not found: {path}")
-    return path.read_text(encoding="utf-8")
+    return load_prompt_from_path(str(path))
 
 
-__all__ = ["load_prompt"]
+def load_prompt_from_path(path: str) -> str:
+    """Read a prompt file by absolute path.
+
+    Used by writer agents that resolve the prompt location through the
+    programme module (``module.get_prompt_path``) — the programme owns
+    the layout, the agent just reads the result.
+    """
+
+    p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"Prompt not found: {p}")
+    return p.read_text(encoding="utf-8")
+
+
+__all__ = ["load_prompt", "load_prompt_from_path"]

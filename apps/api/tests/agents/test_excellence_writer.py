@@ -351,8 +351,10 @@ async def test_unsupported_programme_returns_failed_status() -> None:
     result = await agent.run(_make_input(programme_id="kosgeb_arge"))
 
     assert result.status == "failed"
-    assert "no Excellence Writer prompt" in result.metadata["error"]
-    # Agent must NOT have called the LLM if there's no prompt for the programme.
+    # ``kosgeb_arge`` is not yet registered in the programmes registry,
+    # so the agent fails before reaching prompt-load.
+    assert "unknown programme" in result.metadata["error"].lower()
+    # Agent must NOT have called the LLM if the programme is unknown.
     assert len(primary.calls) == 0
 
 

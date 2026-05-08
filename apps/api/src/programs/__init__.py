@@ -15,10 +15,12 @@ from src.programs.base import (
     CallMetadata,
     ValidationIssue,
 )
+from src.programs.horizon_eu_ria import HorizonEURIAModule
 from src.programs.tubitak_1501 import TUBITAK1501Module
 
 REGISTRY: dict[str, BaseProgramModule] = {
     "tubitak_1501": TUBITAK1501Module(),
+    "horizon_eu_ria": HorizonEURIAModule(),
 }
 
 
@@ -36,6 +38,7 @@ __all__ = [
     "BriefSchema",
     "BriefSection",
     "CallMetadata",
+    "HorizonEURIAModule",
     "REGISTRY",
     "TUBITAK1501Module",
     "ValidationIssue",

@@ -27,9 +27,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.agents.base import AgentInput, AgentOutput, BaseAgent
-from src.agents.prompts import load_prompt
+from src.agents.prompts import load_prompt_from_path
 from src.llm.base import LLMMessage, LLMRequest
 from src.llm.router import LLMRouter
+from src.programs import get_module
 
 logger = logging.getLogger(__name__)
 
@@ -126,22 +127,6 @@ def _split_by_heading(md: str, heading_keys: list[str]) -> dict[str, str]:
     return bodies
 
 
-# ── Programme-specific subsection layout ────────────────────────────────
-
-# Mirror of programs/<programme_id>.subsection_map["excellence"] but pinned
-# here for v1 because the program-modules layer doesn't exist yet (S2).
-# Once src/programs/ lands, this constant moves there and gets read via
-# ``get_module(programme_id).subsection_map["excellence"]``.
-_SUBSECTION_LAYOUT: dict[str, list[str]] = {
-    "tubitak_1501": [
-        "B1_proje_konusu_ve_amaclari",
-        "B2_yenilikci_yonleri",
-        "B3_yontem_ve_teknik",
-        "B4_literature_review",
-    ],
-}
-
-
 # ── Agent ───────────────────────────────────────────────────────────────
 
 
@@ -167,11 +152,16 @@ class ExcellenceWriter(BaseAgent):
 
     async def run(self, input: AgentInput) -> AgentOutput:
         try:
-            template = load_prompt(
-                programme=input.programme_id,
-                agent="excellence_writer",
-                version=self.version,
+            module = get_module(input.programme_id)
+        except KeyError as exc:
+            return AgentOutput(
+                agent_id=self.agent_id,
+                status="failed",
+                metadata={"error": f"unknown programme: {exc}"},
             )
+
+        try:
+            template = load_prompt_from_path(module.get_prompt_path(self.agent_id))
         except FileNotFoundError as exc:
             logger.warning(
                 "excellence_writer_no_prompt_for_programme",
@@ -231,7 +221,7 @@ class ExcellenceWriter(BaseAgent):
         duration_ms = int((time.monotonic() - started) * 1000)
 
         excellence_md = _strip_code_fence(response.text)
-        layout = _SUBSECTION_LAYOUT.get(input.programme_id, [])
+        layout = module.subsection_map.get("excellence", [])
         subsections = _split_by_heading(excellence_md, layout)
         citations = extract_citations(excellence_md)
         words = _word_count(excellence_md)
