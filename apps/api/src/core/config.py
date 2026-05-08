@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     supabase_jwt_secret: SecretStr | None = None
     llm_master_encryption_key: SecretStr | None = None
+    supabase_url: str | None = None
+    supabase_service_role_key: SecretStr | None = None
+    supabase_storage_bucket: str = "exports"
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
 
 
 @lru_cache(maxsize=1)
