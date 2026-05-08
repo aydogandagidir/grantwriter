@@ -1,0 +1,23 @@
+# Force LF endings on Linux-targeted text files so Windows-edited files
+# (Dockerfile, shell scripts, Python, .env.example) don't break on Railway
+# or in Docker builds.
+* text=auto eol=lf
+
+Dockerfile text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# Binary — never normalize.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.xlsx binary

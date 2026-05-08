@@ -8,10 +8,31 @@ packages = [{ include = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-# Real dependencies (fastapi, uvicorn, pydantic, anthropic, celery, asyncpg, ...) added in S1.D1.T2.
+fastapi = "^0.115"
+uvicorn = { extras = ["standard"], version = "^0.32" }
+pydantic = { extras = ["email"], version = "^2.9" }
+pydantic-settings = "^2.6"
+asyncpg = "^0.30"
+sqlalchemy = { extras = ["asyncio"], version = "^2.0" }
+anthropic = "^0.39"
+openai = "^1.54"
+httpx = "^0.27"
+celery = { extras = ["redis"], version = "^5.4" }
+redis = "^5.2"
 
 [tool.poetry.group.dev.dependencies]
-# Real dev deps (pytest, ruff, mypy, ...) added in S1.D1.T2.
+pytest = "^8.3"
+pytest-asyncio = "^0.24"
+ruff = "^0.7"
+mypy = "^1.13"
+
+# Optional — installed via `poetry install --with alembic`. Production uses
+# Supabase CLI for migrations; alembic stays available as a dev escape-hatch.
+[tool.poetry.group.alembic]
+optional = true
+
+[tool.poetry.group.alembic.dependencies]
+alembic = "^1.13"
 
 [build-system]
 requires = ["poetry-core>=1.8.0"]
