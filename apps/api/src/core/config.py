@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
     supabase_jwt_secret: SecretStr | None = None
+    llm_master_encryption_key: SecretStr | None = None
 
 
 @lru_cache(maxsize=1)

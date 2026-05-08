@@ -94,6 +94,12 @@ plugins = []
 module = ["tests.*"]
 disallow_untyped_defs = false
 
+# asyncpg ships no py.typed marker as of 0.30.x — turn off the
+# missing-stubs warning for it project-wide.
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
+
 # ─────────────────────────────────────────────
 # Pytest
 # ─────────────────────────────────────────────
