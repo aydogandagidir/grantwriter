@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from src.agents.base import AgentInput, AgentOutput, AgentStatus, BaseAgent
 from src.agents.call_analyst import CallAnalyst
+from src.agents.excellence_writer import ExcellenceWriter
 
 AGENTS: dict[str, type[BaseAgent]] = {
     "call_analyst": CallAnalyst,
+    "excellence_writer": ExcellenceWriter,
 }
 
 __all__ = [
@@ -21,4 +23,5 @@ __all__ = [
     "AgentStatus",
     "BaseAgent",
     "CallAnalyst",
+    "ExcellenceWriter",
 ]
