@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from src.api.routes.citations import router as citations_router
 from src.api.routes.proposals import router as proposals_router
 from src.core.config import SettingsDep, get_settings
 from src.core.logging import configure_logging
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
         }
 
     app.include_router(proposals_router)
+    app.include_router(citations_router)
 
     return app
 

@@ -28,24 +28,22 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.agents.base import AgentInput, AgentOutput, BaseAgent
 from src.agents.prompts import load_prompt_from_path
+from src.citations import Citation as _Citation
+from src.citations import extract_citations as _extract_citations
 from src.llm.base import LLMMessage, LLMRequest
 from src.llm.router import LLMRouter
 from src.programs import get_module
 
 logger = logging.getLogger(__name__)
 
+# Back-compat re-exports — the citation regex + Pydantic model moved to
+# src/citations/extractors.py in S2.D7.T1. Tests and sibling writer
+# agents that imported these names from here still work.
+ExtractedCitation = _Citation
+extract_citations = _extract_citations
+
 
 # ── Output schema ───────────────────────────────────────────────────────
-
-
-class ExtractedCitation(BaseModel):
-    """A regex-extracted citation marker. Verification is the Hallucination
-    Hunter's job (S2) — at this stage all entries are unverified raw text."""
-
-    model_config = ConfigDict(frozen=True)
-
-    raw_text: str
-    verified: bool = False
 
 
 class ExcellenceWriterOutput(BaseModel):
@@ -59,36 +57,6 @@ class ExcellenceWriterOutput(BaseModel):
     key_terms_used: list[str] = Field(default_factory=list)
     word_count: int = 0
     estimated_page_count: int = 0
-
-
-# ── Citation extraction ─────────────────────────────────────────────────
-
-# Bracketed author-year, e.g. "[Smith 2023]", "[Aydın et al., 2024]",
-# "[Smith and Jones, 2023]" — anything inside square brackets ending with a
-# 4-digit year. Allowed Turkish characters are explicit.
-_BRACKET_AUTHOR_YEAR = re.compile(r"\[[A-ZÇĞİÖŞÜa-zçğıöşü][^\[\]]{1,80}\d{4}[a-z]?\]")
-# Numbered citations [1], [12]
-_BRACKET_NUMERIC = re.compile(r"\[\d{1,3}\]")
-# Parenthesised author-year, e.g. "(Smith 2023)", "(Aydın 2024)"
-_PAREN_AUTHOR_YEAR = re.compile(r"\([A-ZÇĞİÖŞÜ][A-Za-zÇĞİÖŞÜçğıöşü\s.,&]{1,60}\d{4}[a-z]?\)")
-
-
-def extract_citations(text: str) -> list[ExtractedCitation]:
-    """Pull every citation marker out of ``text`` as raw, unverified entries.
-
-    Hallucination Hunter (S2) re-extracts and verifies against Crossref /
-    OpenAlex. We deliberately keep this loose — false positives here are
-    cheap; false negatives later are expensive.
-    """
-
-    seen: set[str] = set()
-    out: list[ExtractedCitation] = []
-    for pattern in (_BRACKET_AUTHOR_YEAR, _BRACKET_NUMERIC, _PAREN_AUTHOR_YEAR):
-        for match in pattern.findall(text):
-            if match not in seen:
-                seen.add(match)
-                out.append(ExtractedCitation(raw_text=match))
-    return out
 
 
 # ── Subsection splitting ────────────────────────────────────────────────
