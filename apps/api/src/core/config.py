@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     redis_url: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
+    supabase_jwt_secret: SecretStr | None = None
 
 
 @lru_cache(maxsize=1)
