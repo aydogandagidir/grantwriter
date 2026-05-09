@@ -1,0 +1,17 @@
+# Build context hygiene — keep the layer small and reproducible.
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.git
+.gitignore
+.gitattributes
+tests
+README.md
+Dockerfile
+.dockerignore
+.env
+.env.*
+!.env.example

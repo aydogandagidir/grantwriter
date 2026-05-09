@@ -1,0 +1,38 @@
+HORIZON EUROPE — RESEARCH AND INNOVATION ACTIONS (RIA)
+Topic: HORIZON-CL4-2026-DIGITAL-EMERGING-01
+
+Scope:
+Develop next-generation digital twin platforms for industrial manufacturing,
+combining edge AI, sensor fusion, and federated learning. The action targets
+a measurable contribution to TRL progression from 4 to 6.
+
+Expected Outcomes:
+- Open-source reference implementation of an interoperable digital-twin runtime
+- Validated pilots in at least two manufacturing sectors
+- A standards-track contribution to OPC UA / IEC 62541
+
+Expected Impacts:
+- 25% reduction in unplanned downtime across pilot sites
+- Demonstrable reduction of CO2 footprint in pilot production lines
+
+Eligibility:
+- Open to legal entities established in EU Member States, Associated Countries,
+  and other countries listed in Annex C of the Horizon Europe Work Programme.
+- A consortium of at least 3 independent legal entities from 3 different
+  EU MS / AC is required.
+- Türkiye is an Associated Country and is eligible.
+
+Evaluation Criteria:
+- Excellence (weight 0.50): clarity and pertinence of objectives, methodology, ambition.
+- Impact (weight 0.30): pathway to impact, dissemination and exploitation.
+- Implementation (weight 0.20): work plan, consortium, allocation of resources.
+
+Page Limit: 45 pages total for Part B (Sections 1, 2, 3 combined).
+
+Submission language: English.
+
+Deadlines:
+- Submission deadline: 2026-09-15 17:00 Brussels time.
+- Indicative GA signature: 2027-03-01.
+
+Indicative budget: EUR 8 million per project. Total call budget: EUR 80 million.

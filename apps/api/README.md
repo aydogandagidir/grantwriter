@@ -12,12 +12,20 @@ Placeholder — gerçek bağımlılıklar ve `src/main.py` **S1.D1.T2** görevin
 - Poetry 1.8+
 - Docker (lokal Postgres + Redis için)
 
-## Kurulum (S1.D1.T2 sonrası)
+## Kurulum
 
 ```bash
 poetry install
 poetry run uvicorn src.main:app --reload --port 8000
 ```
+
+Alembic dev escape-hatch (production migration'lar için Supabase CLI kullanılır):
+
+```bash
+poetry install --with alembic
+```
+
+`.env` örneği için bkz. `.env.example`.
 
 ## Test
 

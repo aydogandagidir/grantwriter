@@ -8,33 +8,46 @@ packages = [{ include = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-fastapi = "^0.115.0"
-uvicorn = { extras = ["standard"], version = "^0.32.0" }
-pydantic = "^2.9.0"
-pydantic-settings = "^2.5.0"
-asyncpg = "^0.30.0"
+fastapi = "^0.115"
+uvicorn = { extras = ["standard"], version = "^0.32" }
+pydantic = { extras = ["email"], version = "^2.9" }
+pydantic-settings = "^2.6"
+asyncpg = "^0.30"
 pgvector = "^0.3.6"
-openai = "^1.54.0"
-anthropic = "^0.39.0"
-httpx = "^0.27.0"
-tenacity = "^9.0.0"
-python-jose = { extras = ["cryptography"], version = "^3.3.0" }
-structlog = "^24.4.0"
-pandas = "^2.2.3"
-tqdm = "^4.66.5"
+sqlalchemy = { extras = ["asyncio"], version = "^2.0" }
+anthropic = "^0.39"
+openai = "^1.54"
+httpx = "^0.27"
+celery = { extras = ["redis"], version = "^5.4" }
+redis = "^5.2"
+pyjwt = { extras = ["crypto"], version = "^2.10" }
+python-docx = "^1.1"
+tiktoken = "^0.8"
+rapidfuzz = "^3.10"
+tenacity = "^9.0"
+structlog = "^24.4"
+pandas = "^2.2"
+tqdm = "^4.66"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.3.3"
-pytest-asyncio = "^0.24.0"
-pytest-mock = "^3.14.0"
-pytest-cov = "^5.0.0"
-faker = "^30.0.0"
-asgi-lifespan = "^2.1.0"
-ruff = "^0.7.0"
-mypy = "^1.13.0"
-types-python-jose = "^3.3.4"
-types-tqdm = "^4.66.0"
-pandas-stubs = "^2.2.3"
+pytest = "^8.3"
+pytest-asyncio = "^0.24"
+pytest-mock = "^3.14"
+pytest-cov = "^5.0"
+faker = "^30.0"
+asgi-lifespan = "^2.1"
+ruff = "^0.7"
+mypy = "^1.13"
+types-tqdm = "^4.66"
+pandas-stubs = "^2.2"
+
+# Optional — installed via `poetry install --with alembic`. Production uses
+# Supabase CLI for migrations; alembic stays available as a dev escape-hatch.
+[tool.poetry.group.alembic]
+optional = true
+
+[tool.poetry.group.alembic.dependencies]
+alembic = "^1.13"
 
 [build-system]
 requires = ["poetry-core>=1.8.0"]
@@ -67,6 +80,9 @@ select = [
 ignore = [
   "E501",   # line-too-long — formatter handles this
   "PLR0913", # too-many-arguments — FastAPI dep injection
+  "RUF001", # ambiguous unicode — bilingual TR/EN product, Turkish chars expected
+  "RUF002", # ambiguous unicode in docstring — same reason
+  "RUF003", # ambiguous unicode in comment — same reason
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -96,8 +112,9 @@ plugins = []
 module = ["tests.*"]
 disallow_untyped_defs = false
 
+# Third-party packages without py.typed markers — silence missing-stub warnings.
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "tqdm.*", "asgi_lifespan.*", "asyncpg", "asyncpg.*"]
+module = ["asyncpg", "asyncpg.*", "pgvector.*", "tqdm.*", "asgi_lifespan.*"]
 ignore_missing_imports = true
 
 # ─────────────────────────────────────────────
@@ -107,6 +124,7 @@ ignore_missing_imports = true
 minversion = "8.0"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers --strict-config"
 markers = [
   "slow: marks tests as slow (deselect with -m 'not slow')",
