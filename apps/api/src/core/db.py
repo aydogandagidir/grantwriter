@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 import asyncpg
+from fastapi import HTTPException, status
 from pgvector.asyncpg import register_vector
 
 from src.core.config import get_settings
@@ -30,9 +31,16 @@ async def _init_connection(conn: asyncpg.Connection) -> None:
 
 
 async def create_pool() -> asyncpg.Pool:
+    """Open the application's asyncpg pool.
+
+    Raises ``RuntimeError`` if ``DATABASE_URL`` is not configured — the
+    application's lifespan should check for that before calling.
+    """
     settings = get_settings()
+    if settings.database_url is None:
+        raise RuntimeError("DATABASE_URL is not configured")
     pool = await asyncpg.create_pool(
-        dsn=settings.database_url,
+        dsn=settings.database_url.get_secret_value(),
         min_size=settings.db_pool_min_size,
         max_size=settings.db_pool_max_size,
         init=_init_connection,
@@ -43,7 +51,16 @@ async def create_pool() -> asyncpg.Pool:
 
 
 async def get_db(request: Request) -> AsyncIterator[asyncpg.Connection]:
-    """FastAPI dependency yielding a connection from the app pool."""
-    pool: asyncpg.Pool = request.app.state.db_pool
+    """FastAPI dependency yielding a connection from the app pool.
+
+    Returns 503 if the pool is not initialised — this happens when the app
+    starts without ``DATABASE_URL`` set (test mode, smoke deploys).
+    """
+    pool: asyncpg.Pool | None = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not configured",
+        )
     async with pool.acquire() as conn:
         yield conn

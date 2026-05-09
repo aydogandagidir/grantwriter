@@ -12,7 +12,7 @@ import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
-from src.agents.base import AgentInput, AgentOutput, BaseAgent
+from src.agents.base import AgentInput, AgentOutput, AgentStatus, BaseAgent
 from src.compliance.distinctiveness import (
     DistinctivenessScore,
     DistinctivenessScorer,
@@ -43,46 +43,53 @@ class DistinctivenessScorerAgent(BaseAgent):
         self._conn = conn
         self._scorer = scorer or DistinctivenessScorer()
 
-    async def run(self, agent_input: AgentInput) -> AgentOutput:
+    async def run(self, input: AgentInput) -> AgentOutput:
         started = time.perf_counter()
         try:
-            score = await self._scorer.score(agent_input.proposal_id, self._conn)
-            status = "completed"
+            score = await self._scorer.score(input.proposal_id, self._conn)
         except ProposalNotFoundError as exc:
-            return self._failure_output(started, "not_found", str(exc))
+            return self._skip_output(started, str(exc), reason_code="proposal_not_found")
         except ProposalNotReadyError as exc:
-            return self._failure_output(started, "skipped", str(exc))
+            return self._skip_output(started, str(exc), reason_code="proposal_not_ready")
 
         duration_ms = int((time.perf_counter() - started) * 1000)
         return AgentOutput(
             agent_id=self.agent_id,
-            status=status,
+            status="completed",
             output=score.model_dump(mode="json"),
             duration_ms=duration_ms,
-            cost_usd=_estimate_embedding_cost_usd(agent_input),
+            cost_usd=_estimate_embedding_cost_usd(input),
             tokens_used={},
         )
 
-    async def stream(self, agent_input: AgentInput) -> AsyncIterator[str]:
+    async def stream(self, input: AgentInput) -> AsyncIterator[str]:
         # Embedding-based scorer has no incremental output. Run once, yield the
         # final result as a single JSON event so the SSE consumer's contract is
         # consistent with the other agents.
-        result = await self.run(agent_input)
+        result = await self.run(input)
         yield json.dumps(result.model_dump(mode="json"))
 
-    def _failure_output(
-        self, started: float, status: str, message: str
+    def _skip_output(
+        self, started: float, message: str, *, reason_code: str
     ) -> AgentOutput:
+        """Build a 'skipped' output for cases where scoring isn't possible.
+
+        AgentStatus only allows completed/failed/skipped, so missing-proposal and
+        not-ready cases both map to skipped with a discriminating reason_code in
+        metadata. The orchestrator treats both as "no score available" and moves
+        on without retrying.
+        """
         duration_ms = int((time.perf_counter() - started) * 1000)
         unknown = DistinctivenessScore(
             score=None, level="unknown", message=message, similar_projects=[]
         )
+        status: AgentStatus = "skipped"
         return AgentOutput(
             agent_id=self.agent_id,
             status=status,
             output=unknown.model_dump(mode="json"),
             duration_ms=duration_ms,
-            metadata={"reason": message},
+            metadata={"reason": message, "reason_code": reason_code},
         )
 
 
@@ -92,3 +99,6 @@ def _estimate_embedding_cost_usd(_: AgentInput) -> float:
     $0.13/1M input tokens; an Excellence section is ~4K tokens → ~$0.0005.
     """
     return 0.0005
+
+
+__all__ = ["DistinctivenessScorerAgent"]

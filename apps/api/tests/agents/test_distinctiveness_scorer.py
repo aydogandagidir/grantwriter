@@ -65,7 +65,7 @@ async def test_run_returns_completed_output(fake_conn: Any) -> None:
     assert output.cost_usd > 0
 
 
-async def test_run_returns_skipped_when_proposal_not_ready(fake_conn: Any) -> None:
+async def test_run_skips_when_proposal_not_ready(fake_conn: Any) -> None:
     scorer = AsyncMock()
     scorer.score = AsyncMock(side_effect=ProposalNotReadyError("no excellence_md"))
     agent = DistinctivenessScorerAgent(conn=fake_conn, scorer=scorer)
@@ -75,17 +75,25 @@ async def test_run_returns_skipped_when_proposal_not_ready(fake_conn: Any) -> No
     assert output.status == "skipped"
     assert output.output["level"] == "unknown"
     assert "no excellence_md" in output.metadata["reason"]
+    assert output.metadata["reason_code"] == "proposal_not_ready"
 
 
-async def test_run_returns_not_found_when_proposal_missing(fake_conn: Any) -> None:
+async def test_run_skips_when_proposal_missing(fake_conn: Any) -> None:
+    """ProposalNotFoundError also maps to skipped (with a discriminating code).
+
+    AgentStatus only allows completed/failed/skipped, so 'not_found' is not a
+    valid status. The reason_code lets the orchestrator distinguish later.
+    """
     scorer = AsyncMock()
     scorer.score = AsyncMock(side_effect=ProposalNotFoundError("bogus"))
     agent = DistinctivenessScorerAgent(conn=fake_conn, scorer=scorer)
 
     output = await agent.run(_agent_input())
 
-    assert output.status == "not_found"
+    assert output.status == "skipped"
     assert output.output["level"] == "unknown"
+    assert output.metadata["reason_code"] == "proposal_not_found"
+    assert "bogus" in output.metadata["reason"]
 
 
 async def test_stream_yields_single_terminal_event(fake_conn: Any) -> None:

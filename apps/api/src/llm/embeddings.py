@@ -41,7 +41,15 @@ _state: dict[str, AsyncOpenAI | None] = {"client": None}
 def _get_client() -> AsyncOpenAI:
     if _state["client"] is None:
         settings = get_settings()
-        _state["client"] = AsyncOpenAI(api_key=settings.openai_api_key)
+        # `openai_api_key` is `SecretStr | None` after the dreamy-beaver merge.
+        # Pass `None` through to the SDK when unset — it falls back to the
+        # OPENAI_API_KEY env var, which is the contract the script CLI relies on.
+        api_key = (
+            settings.openai_api_key.get_secret_value()
+            if settings.openai_api_key is not None
+            else None
+        )
+        _state["client"] = AsyncOpenAI(api_key=api_key)
     client = _state["client"]
     assert client is not None  # narrows for mypy
     return client

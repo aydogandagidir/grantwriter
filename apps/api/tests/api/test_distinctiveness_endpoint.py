@@ -1,63 +1,59 @@
 """Endpoint tests for GET /api/v1/proposals/{id}/distinctiveness.
 
-Uses FastAPI dependency_overrides so we don't need a live DB or a real JWT.
+Mocks the JWT dep, the asyncpg dep, and the DistinctivenessScorer so the
+test does not need a real signing secret, a database, or OpenAI.
 The integration test in tests/compliance/test_distinctiveness_integration.py
-exercises the same endpoint against real Postgres.
+exercises the same code path against real Postgres+pgvector.
 """
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock
-from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
-from src.api.v1 import proposals as proposals_module
+from fastapi import FastAPI
+from httpx import AsyncClient
+from src.api.routes import proposals as proposals_module
 from src.compliance.distinctiveness import (
     DistinctivenessScore,
     ProposalNotFoundError,
     ProposalNotReadyError,
     SimilarProject,
 )
-from src.core.auth import User, get_current_user
+from src.core.auth import get_current_user_id
 from src.core.db import get_db
-from src.main import app
 
 
 @pytest.fixture
-def client_with_overrides() -> Any:
-    fake_user = User(id=uuid4(), email="test@example.com")
+def overridden_app(app: FastAPI) -> FastAPI:
+    """Override JWT + DB deps so endpoint tests don't need a real auth or pool."""
+
+    fake_user_id = uuid.uuid4()
     fake_conn = AsyncMock()
 
-    async def _user_override() -> User:
-        return fake_user
+    async def _user_override() -> uuid.UUID:
+        return fake_user_id
 
-    async def _db_override() -> Any:
+    async def _db_override() -> AsyncIterator[Any]:
         yield fake_conn
 
-    app.dependency_overrides[get_current_user] = _user_override
+    app.dependency_overrides[get_current_user_id] = _user_override
     app.dependency_overrides[get_db] = _db_override
-    try:
-        # The TestClient drives the lifespan, but our lifespan opens an asyncpg
-        # pool we don't want here. Bypass by overriding lifespan to a no-op.
-        original_lifespan = app.router.lifespan_context
-
-        from contextlib import asynccontextmanager
-
-        @asynccontextmanager
-        async def noop_lifespan(_: Any):
-            yield
-
-        app.router.lifespan_context = noop_lifespan
-        with TestClient(app) as client:
-            yield client, fake_conn
-        app.router.lifespan_context = original_lifespan
-    finally:
-        app.dependency_overrides.clear()
+    yield app
+    app.dependency_overrides.pop(get_current_user_id, None)
+    app.dependency_overrides.pop(get_db, None)
 
 
 def _patch_scorer(monkeypatch: pytest.MonkeyPatch, behavior: AsyncMock) -> None:
+    """Replace ``DistinctivenessScorer`` inside the route module with a stub.
+
+    The stub's ``score`` method delegates to the supplied ``behavior`` async
+    callable, so each test can dictate what the scorer returns or raises.
+    """
+
     class StubScorer:
         def __init__(self, *_: Any, **__: Any) -> None:
             pass
@@ -68,10 +64,11 @@ def _patch_scorer(monkeypatch: pytest.MonkeyPatch, behavior: AsyncMock) -> None:
     monkeypatch.setattr(proposals_module, "DistinctivenessScorer", StubScorer)
 
 
-def test_returns_200_with_score(
-    client_with_overrides: Any, monkeypatch: pytest.MonkeyPatch
+async def test_returns_200_with_score(
+    overridden_app: FastAPI,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client, _ = client_with_overrides
     score = DistinctivenessScore(
         score=0.72,
         level="distinctive",
@@ -92,60 +89,79 @@ def test_returns_200_with_score(
 
     _patch_scorer(monkeypatch, behavior)
 
-    proposal_id = uuid4()
-    response = client.get(f"/api/v1/proposals/{proposal_id}/distinctiveness")
+    proposal_id = uuid.uuid4()
+    response = await client.get(f"/api/v1/proposals/{proposal_id}/distinctiveness")
+
     assert response.status_code == 200
     body = response.json()
     assert body["score"] == pytest.approx(0.72)
     assert body["level"] == "distinctive"
     assert body["similar_projects"][0]["acronym"] == "ACR"
+    assert body["similar_projects"][0]["cordis_url"] == "https://cordis.europa.eu/project/id/c1"
 
 
-def test_returns_404_when_proposal_not_found(
-    client_with_overrides: Any, monkeypatch: pytest.MonkeyPatch
+async def test_returns_404_when_proposal_not_found(
+    overridden_app: FastAPI,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client, _ = client_with_overrides
-
     async def behavior() -> DistinctivenessScore:
-        raise ProposalNotFoundError("not found")
+        raise ProposalNotFoundError("proposal abc not found")
 
     _patch_scorer(monkeypatch, behavior)
 
-    response = client.get(f"/api/v1/proposals/{uuid4()}/distinctiveness")
+    response = await client.get(f"/api/v1/proposals/{uuid.uuid4()}/distinctiveness")
+
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()
 
 
-def test_returns_422_when_proposal_not_ready(
-    client_with_overrides: Any, monkeypatch: pytest.MonkeyPatch
+async def test_returns_422_when_proposal_not_ready(
+    overridden_app: FastAPI,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client, _ = client_with_overrides
-
     async def behavior() -> DistinctivenessScore:
-        raise ProposalNotReadyError("no excellence_md")
+        raise ProposalNotReadyError("proposal has no draft.excellence_md to score")
 
     _patch_scorer(monkeypatch, behavior)
 
-    response = client.get(f"/api/v1/proposals/{uuid4()}/distinctiveness")
+    response = await client.get(f"/api/v1/proposals/{uuid.uuid4()}/distinctiveness")
+
     assert response.status_code == 422
     assert "excellence_md" in response.json()["detail"]
 
 
-def test_health_endpoint_exists() -> None:
-    """Sanity check that the FastAPI app is wired up correctly."""
-    from contextlib import asynccontextmanager
+async def test_requires_auth(client: AsyncClient) -> None:
+    """No bearer token + no JWT secret configured → 401 or 503 from auth layer."""
 
-    original = app.router.lifespan_context
+    response = await client.get(f"/api/v1/proposals/{uuid.uuid4()}/distinctiveness")
 
-    @asynccontextmanager
-    async def noop(_: Any):
-        yield
+    # 401 when no Authorization header (HTTPBearer auto_error).
+    # 503 if reached the SettingsDep check with supabase_jwt_secret unset.
+    assert response.status_code in (401, 403, 503)
 
-    app.router.lifespan_context = noop
-    try:
-        with TestClient(app) as c:
-            r = c.get("/health")
-            assert r.status_code == 200
-            assert r.json()["status"] == "ok"
-    finally:
-        app.router.lifespan_context = original
+
+async def test_get_db_raises_503_when_pool_not_initialised() -> None:
+    """Direct unit test of ``get_db`` — without a pool on app.state, returns 503.
+
+    Tested at the dep level (rather than via the endpoint) because the
+    FastAPI dependency-injection layer wraps generator deps in a way that
+    makes their pre-yield exceptions awkward to assert on through the HTTP
+    surface. The contract we care about is that *the dep itself* signals
+    503 — that's what every endpoint using it inherits.
+    """
+    from unittest.mock import MagicMock
+
+    from fastapi import HTTPException
+    from src.core.db import get_db
+
+    fake_request = MagicMock()
+    fake_request.app.state = MagicMock(spec=[])  # no db_pool attribute
+
+    with pytest.raises(HTTPException) as exc_info:
+        async for _ in get_db(fake_request):
+            pass
+
+    assert exc_info.value.status_code == 503
+    assert "database" in exc_info.value.detail.lower()

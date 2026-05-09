@@ -47,22 +47,36 @@ create index if not exists idx_guidelines_embedding
   on funder_guidelines
   using hnsw ((embedding::halfvec(3072)) halfvec_cosine_ops);
 
+-- cordis_funded_projects: backs the distinctiveness scorer (docs/04 §4).
+-- Two deviations from the docs/03 §2.4 spec, both load-bearing:
+--   D1: abstract_embedding is halfvec(3072) directly. pgvector HNSW caps the
+--       `vector` type at 2000 dims; halfvec extends to 4000 with negligible
+--       cosine-ranking impact. Using halfvec at the column level (not as an
+--       index expression) lets the scorer query without a per-row cast.
+--   D2: topic_ids is text[] (not text). CORDIS projects are funded under one
+--       or more topics; preserving the full set lets the scorer match any of
+--       them via `WHERE $topic = ANY(topic_ids)` + GIN index. The single-
+--       column `topic_id` would silently lose the multi-topic projects.
+
 create table if not exists cordis_funded_projects (
   id uuid primary key default gen_random_uuid(),
   cordis_id text unique not null,
   title text not null,
   acronym text,
-  topic_id text,
+  topic_ids text[] not null default '{}',
   programme text,
   budget_eur numeric,
   start_date date,
   end_date date,
   abstract text,
-  abstract_embedding vector(3072),
+  abstract_embedding halfvec(3072),
   metadata jsonb default '{}'::jsonb,
   scraped_at timestamptz not null default now()
 );
-create index if not exists idx_cordis_topic on cordis_funded_projects(topic_id);
+create index if not exists idx_cordis_topics
+  on cordis_funded_projects using gin (topic_ids);
+create index if not exists idx_cordis_start_date
+  on cordis_funded_projects (start_date desc);
 create index if not exists idx_cordis_embedding
   on cordis_funded_projects
-  using hnsw ((abstract_embedding::halfvec(3072)) halfvec_cosine_ops);
+  using hnsw (abstract_embedding halfvec_cosine_ops);

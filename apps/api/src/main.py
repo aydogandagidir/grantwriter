@@ -7,6 +7,8 @@ Use the ``create_app`` factory for tests and overrides; the module-level
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
@@ -17,6 +19,7 @@ from fastapi.responses import JSONResponse
 from src.api.routes.citations import router as citations_router
 from src.api.routes.proposals import router as proposals_router
 from src.core.config import SettingsDep, get_settings
+from src.core.db import create_pool
 from src.core.logging import configure_logging
 
 _PACKAGE_NAME = "bluedev-grantwriter-api"
@@ -38,6 +41,29 @@ def _resolve_version(fallback: str) -> str:
         return fallback
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Open the asyncpg pool when ``DATABASE_URL`` is configured.
+
+    When unset (test mode, smoke deploys), ``app.state.db_pool`` is ``None``
+    and any DB-bound endpoint returns 503 via ``get_db``.
+    """
+
+    settings = get_settings()
+    if settings.database_url is not None:
+        app.state.db_pool = await create_pool()
+        logger.info("db_pool_opened")
+    else:
+        app.state.db_pool = None
+        logger.warning("db_pool_skipped: DATABASE_URL not set")
+    try:
+        yield
+    finally:
+        if app.state.db_pool is not None:
+            await app.state.db_pool.close()
+            logger.info("db_pool_closed")
+
+
 def create_app() -> FastAPI:
     """Build and return a configured FastAPI application."""
 
@@ -51,6 +77,7 @@ def create_app() -> FastAPI:
         version=app_version,
         docs_url="/docs",
         redoc_url=None,
+        lifespan=lifespan,
     )
 
     if settings.cors_origins:

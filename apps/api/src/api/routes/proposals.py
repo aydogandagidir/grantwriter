@@ -8,18 +8,31 @@ POST /api/v1/proposals/{proposal_id}/export
     Auth: bearer JWT (Supabase). Authorization is enforced at the
     DB layer via RLS once the proposal-load logic lands; for now
     the endpoint accepts any authenticated user.
+
+GET /api/v1/proposals/{proposal_id}/distinctiveness
+    Score the proposal's Excellence section against CORDIS funded
+    projects in the same topic. Returns the level + similarity score
+    + top-5 similar projects per docs/04 §4.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, status
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 
+from src.compliance.distinctiveness import (
+    DistinctivenessScore,
+    DistinctivenessScorer,
+    ProposalNotFoundError,
+    ProposalNotReadyError,
+)
 from src.core.auth import CurrentUserId
+from src.core.db import get_db
 from src.tasks.exports import generate_proposal_docx_task
 
 logger = logging.getLogger(__name__)
@@ -69,4 +82,48 @@ async def enqueue_export(
     return ExportEnqueued(job_id=str(async_result.id), proposal_id=proposal_id)
 
 
-__all__ = ["router"]
+@router.get(
+    "/{proposal_id}/distinctiveness",
+    response_model=DistinctivenessScore,
+    summary="Score a proposal's distinctiveness against CORDIS funded projects",
+)
+async def get_distinctiveness(
+    proposal_id: UUID,
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+) -> DistinctivenessScore:
+    """Run the embedding-based distinctiveness scorer.
+
+    See ``src/compliance/distinctiveness.py`` for the algorithm.
+
+    - 200: returns score (level=distinctive|warning|critical), or level=unknown
+      when no comparable CORDIS projects exist for the call's topic.
+    - 404: proposal does not exist.
+    - 422: proposal exists but lacks the inputs (no excellence_md, no linked
+      call/topic).
+    - 503: DATABASE_URL not configured (handled by ``get_db``).
+    """
+
+    scorer = DistinctivenessScorer()
+    try:
+        score = await scorer.score(proposal_id, conn)
+    except ProposalNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ProposalNotReadyError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    logger.info(
+        "distinctiveness_scored",
+        extra={
+            "proposal_id": str(proposal_id),
+            "user_id": str(user_id),
+            "level": score.level,
+            "score": score.score,
+        },
+    )
+    return score
+
+
+__all__ = ["ExportEnqueued", "router"]
