@@ -36,6 +36,9 @@ async def test_export_endpoint_enqueues_task_and_returns_job_id(
         },
         "budget": {"by_category": {}},
     }
+    # The endpoint now takes a structured ExportRequest body (S2.D8 —
+    # added when xlsx export was wired alongside docx).
+    body_payload = {"format": "docx", "proposal": proposal_payload}
 
     class _FakeAsyncResult:
         id = fake_task_id
@@ -45,7 +48,7 @@ async def test_export_endpoint_enqueues_task_and_returns_job_id(
         return_value=_FakeAsyncResult(),
     ) as mock_delay:
         response = await client.post(
-            f"/api/v1/proposals/{proposal_id}/export", json=proposal_payload
+            f"/api/v1/proposals/{proposal_id}/export", json=body_payload
         )
 
     assert response.status_code == 202
@@ -53,6 +56,7 @@ async def test_export_endpoint_enqueues_task_and_returns_job_id(
     assert body["job_id"] == fake_task_id
     assert body["status"] == "queued"
     assert body["proposal_id"] == str(proposal_id)
+    assert body["format"] == "docx"
 
     # The task got the expanded proposal dict (with id injected).
     mock_delay.assert_called_once()
