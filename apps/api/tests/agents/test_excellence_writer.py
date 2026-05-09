@@ -348,11 +348,10 @@ async def test_citations_extracted_from_response() -> None:
 
 async def test_unsupported_programme_returns_failed_status() -> None:
     agent, primary = _build_agent()
-    result = await agent.run(_make_input(programme_id="kosgeb_arge"))
+    result = await agent.run(_make_input(programme_id="not_a_real_programme"))
 
     assert result.status == "failed"
-    # ``kosgeb_arge`` is not yet registered in the programmes registry,
-    # so the agent fails before reaching prompt-load.
+    # An unknown programme_id must short-circuit before prompt-load.
     assert "unknown programme" in result.metadata["error"].lower()
     # Agent must NOT have called the LLM if the programme is unknown.
     assert len(primary.calls) == 0

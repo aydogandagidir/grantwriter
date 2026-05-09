@@ -253,7 +253,7 @@ async def test_impact_writer_falls_through_with_unknown_programme() -> None:
         AgentInput(
             proposal_id=uuid.uuid4(),
             tenant_id=uuid.uuid4(),
-            programme_id="kosgeb_arge",  # not yet registered
+            programme_id="not_a_real_programme",  # truly unregistered
             language="en",
             brief={"title": "x"},
             call={"call_text": "x"},
