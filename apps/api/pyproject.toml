@@ -28,6 +28,8 @@ tenacity = "^9.0"
 structlog = "^24.4"
 pandas = "^2.2"
 tqdm = "^4.66"
+sse-starlette = "^2.1"
+openpyxl = "^3.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
@@ -114,7 +116,7 @@ disallow_untyped_defs = false
 
 # Third-party packages without py.typed markers — silence missing-stub warnings.
 [[tool.mypy.overrides]]
-module = ["asyncpg", "asyncpg.*", "pgvector.*", "tqdm.*", "asgi_lifespan.*"]
+module = ["asyncpg", "asyncpg.*", "pgvector.*", "tqdm.*", "asgi_lifespan.*", "openpyxl", "openpyxl.*"]
 ignore_missing_imports = true
 
 # ─────────────────────────────────────────────

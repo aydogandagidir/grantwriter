@@ -41,7 +41,7 @@ celery_app: Celery = Celery(
     "bluedev_grantwriter",
     broker=_broker_url(),
     backend=_result_backend(),
-    include=["src.tasks.exports"],
+    include=["src.tasks.exports", "src.tasks.orchestrator"],
 )
 
 celery_app.conf.update(

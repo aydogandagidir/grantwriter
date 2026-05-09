@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.api.routes.citations import router as citations_router
+from src.api.routes.jobs import router as jobs_router
 from src.api.routes.proposals import router as proposals_router
 from src.core.config import SettingsDep, get_settings
 from src.core.db import create_pool
@@ -62,6 +63,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if app.state.db_pool is not None:
             await app.state.db_pool.close()
             logger.info("db_pool_closed")
+        # Redis client is opened lazily on first SSE request — close it
+        # here if any handler created one.
+        redis_client = getattr(app.state, "redis_client", None)
+        if redis_client is not None:
+            await redis_client.aclose()
+            logger.info("redis_client_closed")
 
 
 def create_app() -> FastAPI:
@@ -114,6 +121,7 @@ def create_app() -> FastAPI:
 
     app.include_router(proposals_router)
     app.include_router(citations_router)
+    app.include_router(jobs_router)
 
     return app
 
