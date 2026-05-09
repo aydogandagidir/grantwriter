@@ -22,7 +22,6 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
 from src.core.config import get_settings
 from src.main import create_app
 
@@ -99,14 +98,20 @@ def _hash_to_unit_vector(text: str, dim: int = 3072) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
-def _migrations_dir() -> Path:
+def _supabase_dir() -> Path:
     here = Path(__file__).resolve()
-    return here.parent.parent.parent.parent / "infra" / "supabase" / "migrations"
+    return here.parent.parent.parent.parent / "infra" / "supabase"
 
 
 @pytest.fixture
 async def live_db_pool() -> AsyncIterator[Any]:
-    """Connect to a local Postgres (skip the test if unreachable)."""
+    """Connect to a local Postgres (skip the test if unreachable).
+
+    Applies the Supabase auth schema stub first, then all migrations in
+    timestamp order. The stub is needed because several migrations reference
+    ``auth.users`` / ``auth.uid()``, which only exist on a real Supabase
+    instance — local Postgres needs the stub to satisfy those references.
+    """
     import asyncpg
 
     dsn = os.environ.get(
@@ -122,9 +127,15 @@ async def live_db_pool() -> AsyncIterator[Any]:
     except (OSError, asyncpg.PostgresError) as exc:
         pytest.skip(f"live Postgres not reachable: {exc}")
 
+    supabase_dir = _supabase_dir()
+    auth_stub = supabase_dir / "auth_stub.sql"
+    migrations_dir = supabase_dir / "migrations"
+
     try:
         async with pool.acquire() as conn:
-            for migration in sorted(_migrations_dir().glob("*.sql")):
+            if auth_stub.exists():
+                await conn.execute(auth_stub.read_text(encoding="utf-8"))
+            for migration in sorted(migrations_dir.glob("*.sql")):
                 await conn.execute(migration.read_text(encoding="utf-8"))
         yield pool
     finally:
