@@ -70,6 +70,22 @@ class Settings(BaseSettings):
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
 
+    # Iyzico (TR payments). Outbound creds (api_key/secret_key) are
+    # placeholders until the subscription flow lands; webhook_secret is
+    # required as soon as the receiver is wired into the public URL.
+    iyzico_api_key: SecretStr | None = None
+    iyzico_secret_key: SecretStr | None = None
+    iyzico_base_url: str = "https://sandbox-api.iyzipay.com"
+    iyzico_webhook_secret: SecretStr | None = None
+
+    # Observability — both packages are optional; init noop when DSN/token
+    # is missing OR the SDK isn't installed (see src/core/observability.py).
+    sentry_dsn: SecretStr | None = None
+    sentry_environment: str | None = None  # defaults to app_env at init
+    sentry_traces_sample_rate: float = 0.0  # errors only by default
+    logtail_token: SecretStr | None = None
+    observability_enabled: bool = True
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

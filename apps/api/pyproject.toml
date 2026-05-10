@@ -119,6 +119,13 @@ disallow_untyped_defs = false
 module = ["asyncpg", "asyncpg.*", "pgvector.*", "tqdm.*", "asgi_lifespan.*", "openpyxl", "openpyxl.*"]
 ignore_missing_imports = true
 
+# Optional observability SDKs — imported lazily inside src/core/observability.py.
+# Production installs them via a separate extra; the lazy-import path noops
+# when missing, so type-checking treats them as opaque.
+[[tool.mypy.overrides]]
+module = ["sentry_sdk", "sentry_sdk.*", "logtail", "logtail.*"]
+ignore_missing_imports = true
+
 # ─────────────────────────────────────────────
 # Pytest
 # ─────────────────────────────────────────────

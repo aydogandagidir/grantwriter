@@ -48,7 +48,7 @@ Bluedev GrantWriter, AB ve Türkiye hibe programlarına başvuran KOBİ'ler içi
 - **LLM:** Anthropic Claude (Opus 4.7 primary, Sonnet 4.6 secondary)
 - **Citations:** Crossref API + OpenAlex API
 - **Calls:** EU Funding & Tenders Portal API + NLnet RSS + custom scrapers
-- **Payments:** Stripe (EU) + Iyzico (TR)
+- **Payments:** Iyzico (TR — primary). Stripe (EU) deferred to Faz 2.
 - **Embeddings:** OpenAI `text-embedding-3-large` (3072 dim, multilingual)
 
 ---
