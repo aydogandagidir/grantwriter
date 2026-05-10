@@ -10,11 +10,12 @@ frontend uses for optimistic UI / polling.
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 from uuid import UUID
 
 import httpx
 import redis.asyncio as redis_async
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, ConfigDict
 
 from src.citations import (
@@ -27,6 +28,11 @@ from src.citations import (
 )
 from src.core.auth import CurrentUserId
 from src.core.config import Settings, SettingsDep
+from src.core.rate_limit import (
+    CITATION_VERIFY,
+    RateLimitDecision,
+    rate_limit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +57,9 @@ async def verify_citation(
     body: Citation,
     user_id: CurrentUserId,
     settings: SettingsDep,
+    _rate_check: Annotated[
+        RateLimitDecision, Depends(rate_limit(CITATION_VERIFY))
+    ],
 ) -> VerifyResponse:
     """Run the 3-stage cascade and return the result.
 
@@ -58,6 +67,9 @@ async def verify_citation(
     asks for a single citation re-check and gets the answer back in
     one round-trip. Batch verification (full proposal) goes through the
     Celery task in :mod:`src.tasks.citations`.
+
+    Rate-limited per docs/09 §8 (50 / 60s per user) — looser than LLM
+    calls because Crossref/OpenAlex are cheap and cached.
     """
 
     cache = await _build_cache(settings)

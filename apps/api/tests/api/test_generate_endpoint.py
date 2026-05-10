@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
+from datetime import date
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -21,10 +22,33 @@ from src.core.auth import get_current_user_id
 from src.core.db import get_db
 
 
+def _allowed_quota_row() -> dict[str, Any]:
+    """Default consume_quota return — tenant has headroom."""
+
+    return {
+        "monthly_proposals_used": 1,
+        "monthly_proposal_limit": 3,
+        "billing_period_start": date(2026, 5, 1),
+        "plan": "starter",
+    }
+
+
 @pytest.fixture
 def overridden_app(app: FastAPI) -> AsyncIterator[FastAPI]:
+    """Default DB stub: tenant exists, quota has headroom.
+
+    Individual tests override ``fake_conn.fetchval`` / ``fake_conn.fetchrow``
+    to exercise the missing-proposal (404) and quota-exhausted (402)
+    branches.
+    """
+
     fake_user_id = uuid.uuid4()
     fake_conn = AsyncMock()
+    # fetchval is the proposal-lookup → tenant_id resolver in /generate.
+    fake_conn.fetchval.return_value = uuid.uuid4()
+    # fetchrow drives consume_quota; the default row keeps existing tests
+    # passing through the happy path.
+    fake_conn.fetchrow.return_value = _allowed_quota_row()
 
     async def _user_override() -> uuid.UUID:
         return fake_user_id
@@ -34,6 +58,9 @@ def overridden_app(app: FastAPI) -> AsyncIterator[FastAPI]:
 
     app.dependency_overrides[get_current_user_id] = _user_override
     app.dependency_overrides[get_db] = _db_override
+    # Stash the conn on the app so individual tests can re-program return
+    # values without re-building the override stack.
+    app.state._test_fake_conn = fake_conn
     yield app
     app.dependency_overrides.pop(get_current_user_id, None)
     app.dependency_overrides.pop(get_db, None)
@@ -69,6 +96,62 @@ async def test_generate_enqueues_task_and_returns_job_info(
     assert body["estimated_duration_seconds"] >= 1
 
     fake_delay.assert_called_once_with(str(proposal_id))
+
+
+async def test_generate_returns_404_when_proposal_missing(
+    overridden_app: FastAPI,
+    client: AsyncClient,
+) -> None:
+    """The proposal-id → tenant-id lookup returns NULL → 404 before quota."""
+
+    overridden_app.state._test_fake_conn.fetchval.return_value = None
+
+    response = await client.post(f"/api/v1/proposals/{uuid.uuid4()}/generate")
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+
+
+async def test_generate_returns_402_when_quota_exhausted(
+    overridden_app: FastAPI,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """consume_quota returns None (denied) and peek_quota reports the
+    snapshot. Route surfaces 402 + ``X-Plan-*`` headers + structured
+    detail body. The Celery task must NOT be enqueued."""
+
+    fake_conn = overridden_app.state._test_fake_conn
+    # First fetchrow = consume (denied), second fetchrow = peek (snapshot).
+    fake_conn.fetchrow.side_effect = [
+        None,
+        {
+            "used_this_month": 3,
+            "monthly_proposal_limit": 3,
+            "current_period_start": date(2026, 5, 1),
+            "plan": "starter",
+        },
+    ]
+
+    fake_delay = MagicMock()
+    monkeypatch.setattr(
+        proposals_module.generate_draft_task, "delay", fake_delay
+    )
+
+    response = await client.post(f"/api/v1/proposals/{uuid.uuid4()}/generate")
+
+    assert response.status_code == 402
+    body = response.json()
+    assert body["detail"]["error"] == "monthly_quota_exceeded"
+    assert body["detail"]["plan"] == "starter"
+    assert body["detail"]["limit"] == 3
+    assert body["detail"]["used"] == 3
+    assert body["detail"]["period_start"] == "2026-05-01"
+
+    assert response.headers["X-Plan-Limit"] == "3"
+    assert response.headers["X-Plan-Used"] == "3"
+    assert response.headers["X-Plan-Remaining"] == "0"
+
+    fake_delay.assert_not_called()
 
 
 # ── GET /jobs/{id} ─────────────────────────────────────────────────────

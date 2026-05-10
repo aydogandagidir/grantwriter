@@ -29,6 +29,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.agents.base import AgentInput
 from src.agents.compliance_reviewer import ComplianceReport, ComplianceReviewer
+from src.billing.quota import consume_quota
 from src.compliance.distinctiveness import (
     DistinctivenessScore,
     DistinctivenessScorer,
@@ -38,6 +39,7 @@ from src.compliance.distinctiveness import (
 from src.core.auth import CurrentUserId
 from src.core.db import get_db
 from src.core.llm_dep import get_llm_router
+from src.core.rate_limit import LLM_CALL, RateLimitDecision, rate_limit
 from src.llm.router import LLMRouter
 from src.orchestrator.sse_publisher import channel_for
 from src.programs import get_module
@@ -210,12 +212,55 @@ async def get_distinctiveness(
 async def enqueue_generation(
     proposal_id: UUID,
     user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    _rate_check: Annotated[
+        RateLimitDecision, Depends(rate_limit(LLM_CALL))
+    ],
 ) -> GenerateEnqueued:
     """Kick off :func:`generate_draft_task` and return the job + stream URLs.
 
     The saga itself runs in the Celery worker. The HTTP layer returns
     immediately so the frontend can subscribe to the SSE stream.
+
+    Two gates run before the enqueue:
+    1. **Rate limit** — 10 / 60s per user (docs/09 §8). Throttles a
+       generate-loop attack inside a single minute.
+    2. **Plan quota** — atomic per-month counter on
+       ``tenants.monthly_proposals_used`` against
+       ``monthly_proposal_limit`` (Starter 3, Pro 15, Agency unlimited).
+       402 + ``X-Plan-*`` headers when exhausted; FE upsells.
+
+    A failed saga does NOT refund the quota — the user pressed Generate
+    and the LLM provider already charged for the burst.
     """
+
+    tenant_id = await conn.fetchval(
+        "select tenant_id from proposals where id = $1", proposal_id
+    )
+    if tenant_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"proposal {proposal_id} not found",
+        )
+
+    quota = await consume_quota(conn, tenant_id=UUID(str(tenant_id)))
+    if not quota.allowed:
+        snap = quota.snapshot
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "monthly_quota_exceeded",
+                "plan": snap.plan,
+                "limit": snap.monthly_limit,
+                "used": snap.used_this_month,
+                "period_start": snap.period_start.isoformat(),
+            },
+            headers={
+                "X-Plan-Limit": str(snap.monthly_limit),
+                "X-Plan-Used": str(snap.used_this_month),
+                "X-Plan-Remaining": "0",
+            },
+        )
 
     async_result = generate_draft_task.delay(str(proposal_id))
     logger.info(
@@ -224,6 +269,9 @@ async def enqueue_generation(
             "proposal_id": str(proposal_id),
             "user_id": str(user_id),
             "task_id": async_result.id,
+            "plan": quota.snapshot.plan,
+            "quota_used": quota.snapshot.used_this_month,
+            "quota_limit": quota.snapshot.monthly_limit,
         },
     )
     return GenerateEnqueued(
@@ -244,6 +292,9 @@ async def validate_proposal(
     user_id: CurrentUserId,
     conn: Annotated[asyncpg.Connection, Depends(get_db)],
     router_inst: Annotated[LLMRouter, Depends(get_llm_router)],
+    _rate_check: Annotated[
+        RateLimitDecision, Depends(rate_limit(LLM_CALL))
+    ],
 ) -> ComplianceReport:
     """Re-run :class:`ComplianceReviewer` against the proposal's persisted draft.
 
@@ -254,6 +305,7 @@ async def validate_proposal(
 
     - 200: returns the fresh ComplianceReport.
     - 404: proposal not found.
+    - 429: rate limit exceeded (10 / 60s); ``Retry-After`` header present.
     """
 
     row = await conn.fetchrow(
