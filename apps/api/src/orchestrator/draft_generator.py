@@ -42,6 +42,9 @@ from src.agents import (
 )
 from src.agents.base import AgentInput, AgentOutput, BaseAgent
 from src.agents.distinctiveness_scorer import DistinctivenessScorerAgent
+from src.core.audit import write_audit_event
+from src.core.config import get_settings
+from src.notifications import send_draft_complete_email
 from src.orchestrator.sse_publisher import SSEPublisher
 
 if TYPE_CHECKING:
@@ -233,6 +236,9 @@ class DraftGenerator:
                 "completed",
                 {"proposal_id": str(self.proposal_id), "status": final_status},
             )
+            # Best-effort completion email — outside the saga's blocking
+            # path so a Resend outage never flips a green run to red.
+            await self._send_completion_email(final_status)
             return self._build_result(final_status, started, agent_outputs)
 
         except UnrecoverableError as exc:
@@ -405,6 +411,84 @@ class DraftGenerator:
             self.proposal_id,
         )
 
+    async def _send_completion_email(self, final_status: DraftStatus) -> None:
+        """Notify the proposal owner that the saga finished.
+
+        Pulls the title + owner email + tenant language in one
+        round-trip, composes the proposal URL from ``settings.app_url``,
+        and fans out via :func:`send_draft_complete_email`. **Every**
+        failure mode is swallowed — a Resend / DB / mocked-fixture
+        hiccup must never flip a green saga to ``failed_recoverable``.
+        """
+
+        try:
+            await self._send_completion_email_unsafe(final_status)
+        except Exception:
+            logger.exception(
+                "draft_complete_email_unexpected_failure",
+                extra={"proposal_id": str(self.proposal_id)},
+            )
+
+    async def _send_completion_email_unsafe(
+        self, final_status: DraftStatus
+    ) -> None:
+        """The actual lookup + send. Wrapped by :meth:`_send_completion_email`
+        so missing-column / network failures never bubble up.
+        """
+
+        row = await self._conn.fetchrow(
+            """
+            select p.title, p.language, p.tenant_id, p.created_by,
+                   au.email as owner_email
+              from proposals p
+              left join auth.users au on au.id = p.created_by
+             where p.id = $1
+            """,
+            self.proposal_id,
+        )
+        if row is None:
+            return
+
+        owner_email = _row_get(row, "owner_email")
+        if not owner_email:
+            # Proposal may have been deleted, or created_by was nulled
+            # by KVKK/GDPR self-deletion. Either way: nothing to send.
+            return
+
+        settings = get_settings()
+        proposal_url = (
+            f"{settings.app_url.rstrip('/')}/proposals/{self.proposal_id}"
+        )
+        title = _row_get(row, "title") or "(untitled)"
+        language = _row_get(row, "language")
+
+        result = await send_draft_complete_email(
+            to=str(owner_email),
+            proposal_id=self.proposal_id,
+            proposal_title=str(title),
+            proposal_url=proposal_url,
+            status=final_status,
+            has_blockers=final_status == "draft_complete_with_issues",
+            lang=str(language) if language else None,
+        )
+
+        if result.status == "failed":
+            try:
+                await write_audit_event(
+                    self._conn,
+                    tenant_id=_row_get(row, "tenant_id"),
+                    user_id=_row_get(row, "created_by"),
+                    action="email.send_failed",
+                    resource_type="proposal",
+                    resource_id=self.proposal_id,
+                    diff={"template": result.template_name},
+                )
+            except Exception:
+                logger.exception(
+                    "email_send_failed_audit_write_failed",
+                    extra={"proposal_id": str(self.proposal_id)},
+                )
+
     # ── Helpers ───────────────────────────────────────────────────────
 
     def _initial_input(self, proposal_row: dict[str, Any]) -> AgentInput:
@@ -537,6 +621,21 @@ def _output_dict(output: AgentOutput | None) -> dict[str, Any]:
     if output is None:
         return {}
     return dict(output.output or {})
+
+
+def _row_get(row: Any, key: str) -> Any:
+    """Tolerant column access for asyncpg.Record + dict + Mock fixtures.
+
+    asyncpg.Record supports ``row[key]`` when the column is present and
+    raises ``KeyError`` otherwise. Test mocks usually return plain dicts
+    that may omit columns we now look up. Both shapes implement
+    ``__contains__``; this helper degrades silently to ``None``.
+    """
+
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return None
 
 
 def _loads(value: Any) -> dict[str, Any]:

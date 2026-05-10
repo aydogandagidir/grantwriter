@@ -42,8 +42,10 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from src.core.audit import write_audit_event
 from src.core.auth import CurrentUserId
+from src.core.config import get_settings
 from src.core.db import get_db
 from src.core.tenant import require_admin, resolve_tenant_and_role
+from src.notifications import send_invitation_email, send_member_added_email
 
 logger = logging.getLogger(__name__)
 
@@ -281,14 +283,98 @@ async def create_invitation(
             "role": body.role,
         },
     )
+
+    # Send the invitation email. Outside the transaction — a Resend
+    # outage must not roll back the row. Failures are logged + audited
+    # without leaking the body / token.
+    invitation_id = UUID(str(row["id"]))
+    await _send_invitation_email_after_create(
+        conn,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        invitation_id=invitation_id,
+        target_email=target_email,
+        role=body.role,
+        token=token,
+        expires_at=row["expires_at"],
+    )
+
     return InvitationCreated(
-        id=UUID(str(row["id"])),
+        id=invitation_id,
         email=str(row["email"]),
         role=str(row["role"]),
         token=token,
         expires_at=row["expires_at"],
         accept_url_path=f"/invitations/{token}",
     )
+
+
+async def _send_invitation_email_after_create(
+    conn: asyncpg.Connection,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    invitation_id: UUID,
+    target_email: str,
+    role: str,
+    token: str,
+    expires_at: datetime,
+) -> None:
+    """Compose context, ship the email, audit on failure.
+
+    Tenant name + inviter display name come from a single round-trip so
+    a slow lookup doesn't fan out into multiple queries. The accept URL
+    is composed from ``settings.app_url`` so the FE origin is the only
+    moving piece between dev / staging / prod.
+    """
+
+    settings = get_settings()
+    accept_url = f"{settings.app_url.rstrip('/')}/invitations/{token}"
+
+    context = await conn.fetchrow(
+        """
+        select t.name as tenant_name,
+               iu.display_name as inviter_display_name
+          from tenants t
+          left join public.users iu on iu.id = $2 and iu.tenant_id = t.id
+         where t.id = $1
+        """,
+        tenant_id,
+        user_id,
+    )
+    tenant_name = (
+        str(context["tenant_name"]) if context and context["tenant_name"] else "your team"
+    )
+    inviter_name = (
+        str(context["inviter_display_name"])
+        if context and context["inviter_display_name"]
+        else None
+    )
+
+    result = await send_invitation_email(
+        to=target_email,
+        accept_url=accept_url,
+        inviter_name=inviter_name,
+        tenant_name=tenant_name,
+        role=role,
+        expires_at=expires_at,
+        invitation_id=invitation_id,
+    )
+
+    if result.status == "failed":
+        # Best-effort audit — a failure here must not bubble up either.
+        try:
+            await write_audit_event(
+                conn,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action="email.send_failed",
+                resource_type="tenant_invitation",
+                resource_id=invitation_id,
+                diff={"template": result.template_name},
+            )
+        except Exception:
+            logger.exception("email_send_failed_audit_write_failed")
 
 
 @tenant_router.get(
@@ -536,7 +622,77 @@ async def accept_invitation(
             "role": role,
         },
     )
+
+    # Notify tenant owners that a new member joined. Owners only —
+    # admins skip to keep the volume low. Failures are best-effort.
+    await _notify_owners_of_member_added(
+        conn,
+        tenant_id=tenant_id,
+        invitation_id=UUID(str(invitation["id"])),
+        new_member_email=str(caller_email),
+        new_member_role=role,
+    )
+
     return InvitationAccepted(tenant_id=tenant_id, role=role)
+
+
+async def _notify_owners_of_member_added(
+    conn: asyncpg.Connection,
+    *,
+    tenant_id: UUID,
+    invitation_id: UUID,
+    new_member_email: str,
+    new_member_role: str,
+) -> None:
+    """Fan-out the member-added email to every active owner.
+
+    A failure to ship to one owner does not abort the others — each
+    send returns its own SendResult; failures are audit-logged. The
+    list is bounded by the tenant's owner count (typically 1-3 — this
+    is not a high-volume mailing).
+    """
+
+    rows = await conn.fetch(
+        """
+        select u.id as user_id, t.name as tenant_name, au.email
+          from public.users u
+          join tenants t on t.id = u.tenant_id
+          join auth.users au on au.id = u.id
+         where u.tenant_id = $1
+           and u.role = 'owner'
+           and u.deleted_at is null
+        """,
+        tenant_id,
+    )
+    if not rows:
+        return
+
+    tenant_name = str(rows[0]["tenant_name"]) if rows[0]["tenant_name"] else "your team"
+
+    for row in rows:
+        owner_email = row["email"]
+        if not owner_email:
+            continue
+        result = await send_member_added_email(
+            to=str(owner_email),
+            new_member_email=new_member_email,
+            new_member_role=new_member_role,
+            tenant_name=tenant_name,
+            invitation_id=invitation_id,
+        )
+        if result.status == "failed":
+            try:
+                await write_audit_event(
+                    conn,
+                    tenant_id=tenant_id,
+                    user_id=UUID(str(row["user_id"])),
+                    action="email.send_failed",
+                    resource_type="tenant_invitation",
+                    resource_id=invitation_id,
+                    diff={"template": result.template_name},
+                )
+            except Exception:
+                logger.exception("email_send_failed_audit_write_failed")
 
 
 __all__ = [

@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     logtail_token: SecretStr | None = None
     observability_enabled: bool = True
 
+    # Email (Resend) — optional; init noop when key absent OR package missing.
+    # Mirrors the observability pattern in src/core/observability.py.
+    resend_api_key: SecretStr | None = None
+    email_from: str = "Bluedev GrantWriter <noreply@bluedev.dev>"
+    app_url: str = "https://app.bluedev.dev"  # used to compose invite accept URLs
+    email_enabled: bool = True  # kill-switch independent of API key presence
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

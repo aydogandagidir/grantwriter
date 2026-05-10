@@ -126,6 +126,12 @@ ignore_missing_imports = true
 module = ["sentry_sdk", "sentry_sdk.*", "logtail", "logtail.*"]
 ignore_missing_imports = true
 
+# Resend SDK — imported lazily inside src/notifications/email.py. Same
+# rationale as observability: optional dep, lazy import, type-opaque.
+[[tool.mypy.overrides]]
+module = ["resend", "resend.*"]
+ignore_missing_imports = true
+
 # ─────────────────────────────────────────────
 # Pytest
 # ─────────────────────────────────────────────
