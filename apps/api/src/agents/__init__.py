@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from src.agents.base import AgentInput, AgentOutput, AgentStatus, BaseAgent
 from src.agents.call_analyst import CallAnalyst
+from src.agents.compliance_reviewer import ComplianceReviewer
 from src.agents.excellence_writer import ExcellenceWriter
 from src.agents.hallucination_hunter import HallucinationHunter
 from src.agents.impact_writer import ImpactWriter
@@ -19,6 +20,7 @@ AGENTS: dict[str, type[BaseAgent]] = {
     "excellence_writer": ExcellenceWriter,
     "impact_writer": ImpactWriter,
     "implementation_writer": ImplementationWriter,
+    "compliance_reviewer": ComplianceReviewer,
     "hallucination_hunter": HallucinationHunter,
 }
 
@@ -29,6 +31,7 @@ __all__ = [
     "AgentStatus",
     "BaseAgent",
     "CallAnalyst",
+    "ComplianceReviewer",
     "ExcellenceWriter",
     "HallucinationHunter",
     "ImpactWriter",

@@ -15,12 +15,18 @@ from src.programs.base import (
     CallMetadata,
     ValidationIssue,
 )
+from src.programs.cascade_funding import CascadeFundingModule
 from src.programs.horizon_eu_ria import HorizonEURIAModule
+from src.programs.kosgeb_arge import KOSGEBARGEModule
 from src.programs.tubitak_1501 import TUBITAK1501Module
+from src.programs.tubitak_1507 import TUBITAK1507Module
 
 REGISTRY: dict[str, BaseProgramModule] = {
     "tubitak_1501": TUBITAK1501Module(),
+    "tubitak_1507": TUBITAK1507Module(),
+    "kosgeb_arge": KOSGEBARGEModule(),
     "horizon_eu_ria": HorizonEURIAModule(),
+    "cascade_funding": CascadeFundingModule(),
 }
 
 
@@ -38,9 +44,12 @@ __all__ = [
     "BriefSchema",
     "BriefSection",
     "CallMetadata",
+    "CascadeFundingModule",
     "HorizonEURIAModule",
+    "KOSGEBARGEModule",
     "REGISTRY",
     "TUBITAK1501Module",
+    "TUBITAK1507Module",
     "ValidationIssue",
     "get_module",
 ]

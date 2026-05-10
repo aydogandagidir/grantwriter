@@ -12,6 +12,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, ClassVar
 
+import openpyxl
 from docx import Document
 from docx.document import Document as DocumentT
 from docx.shared import Pt
@@ -26,8 +27,16 @@ from src.programs.base import (
     ProgrammeLanguage,
     ValidationIssue,
 )
+from src.programs.horizon_eu_ria.xlsx_template_builder import (
+    SHEET_PARTNERS,
+    SHEET_SUMMARY,
+    SHEET_WP_COSTS,
+)
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "ria_part_b_2026.docx"
+_XLSX_TEMPLATE_PATH = (
+    Path(__file__).resolve().parent / "templates" / "lump_sum_budget_2026.xlsx"
+)
 # Prompts are shared across HE RIA and (future) HE IA, hence the
 # ``horizon_eu`` (not ``horizon_eu_ria``) directory.
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "agents" / "prompts" / "horizon_eu"
@@ -382,9 +391,67 @@ class HorizonEURIAModule(BaseProgramModule):
         return buf.getvalue()
 
     def export_xlsx_budget(self, proposal: dict[str, Any]) -> bytes | None:
-        # Lump Sum Excel export lands in S2.D8 (next task per the spec).
-        del proposal
-        return None
+        """Render the Lump Sum budget XLSX from ``proposal["budget"]``.
+
+        Loads the committed template, writes Partners + WP Costs rows
+        and updates the Summary sheet. Returns ``None`` if the proposal
+        has no ``budget`` dict — the orchestrator skips the XLSX stage
+        rather than producing an empty workbook.
+        """
+
+        budget = proposal.get("budget") or {}
+        if not budget:
+            return None
+
+        template_path = _XLSX_TEMPLATE_PATH
+        if not template_path.is_file():
+            raise FileNotFoundError(
+                f"Lump Sum template missing: {template_path}. Run "
+                "`python -m src.programs.horizon_eu_ria.xlsx_template_builder` "
+                "to regenerate."
+            )
+
+        wb = openpyxl.load_workbook(str(template_path))
+
+        partners = list(budget.get("by_partner") or [])
+        wps = list(budget.get("by_wp") or [])
+
+        if SHEET_PARTNERS in wb.sheetnames:
+            ws_partners = wb[SHEET_PARTNERS]
+            for idx, partner in enumerate(partners, start=2):
+                ws_partners.cell(row=idx, column=1, value=str(partner.get("name") or ""))
+                ws_partners.cell(
+                    row=idx, column=2, value=str(partner.get("country") or "")
+                )
+                ws_partners.cell(
+                    row=idx, column=3, value=str(partner.get("entity_type") or "")
+                )
+
+        if SHEET_WP_COSTS in wb.sheetnames:
+            ws_wp = wb[SHEET_WP_COSTS]
+            for idx, wp in enumerate(wps, start=2):
+                ws_wp.cell(row=idx, column=1, value=wp.get("wp_number"))
+                ws_wp.cell(row=idx, column=2, value=str(wp.get("title") or ""))
+                ws_wp.cell(row=idx, column=3, value=str(wp.get("lead_partner") or ""))
+                ws_wp.cell(row=idx, column=4, value=wp.get("person_months"))
+                ws_wp.cell(row=idx, column=5, value=wp.get("total"))
+
+        if SHEET_SUMMARY in wb.sheetnames:
+            ws_summary = wb[SHEET_SUMMARY]
+            # Summary rows are pre-seeded by the builder; we update the
+            # value column (B) of the rows whose label (A) we recognise.
+            for row in ws_summary.iter_rows(min_row=1, max_row=ws_summary.max_row):
+                label = str(row[0].value or "")
+                if "Total" in label:
+                    row[1].value = budget.get("total_eur")
+                elif "Partners" in label:
+                    row[1].value = len(partners)
+                elif "WPs" in label:
+                    row[1].value = len(wps)
+
+        buf = BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
 
 
 # ── Helpers ────────────────────────────────────────────────────────────

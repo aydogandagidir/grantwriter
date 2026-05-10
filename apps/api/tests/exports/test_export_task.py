@@ -89,7 +89,7 @@ async def test_render_and_upload_requires_proposal_ids() -> None:
 async def test_render_and_upload_unknown_programme_raises() -> None:
     storage = _FakeStorage()
     bad = _proposal()
-    bad["programme_id"] = "kosgeb_arge"  # not yet registered (S2.D7)
+    bad["programme_id"] = "not_a_real_programme"
     with pytest.raises(KeyError):
         await _render_and_upload(proposal=bad, storage=storage)
 
