@@ -579,7 +579,7 @@ def build_default_agents(
         "implementation_writer": ImplementationWriter(router=router),
         "compliance_reviewer": ComplianceReviewer(router=router, conn=compliance_conn),
         "distinctiveness_scorer": DistinctivenessScorerAgent(conn=distinctiveness_conn),
-        "hallucination_hunter": HallucinationHunter(verifier=verifier),
+        "hallucination_hunter": HallucinationHunter(verifier=verifier, router=router),
     }
 
 
