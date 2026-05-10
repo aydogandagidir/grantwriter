@@ -44,6 +44,7 @@ describe('<Button>', () => {
   it('renders as an anchor when asChild is set', () => {
     render(
       <Button asChild>
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a href="/dashboard">Go</a>
       </Button>,
     );

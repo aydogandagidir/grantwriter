@@ -4,7 +4,7 @@ import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Link } from '@/i18n/navigation';
-import { apiServer } from '@/lib/api/client';
+import { apiServer } from '@/lib/api/server';
 import type { MeResponse } from '@bluedev/shared-types';
 
 export default async function DashboardPage({
