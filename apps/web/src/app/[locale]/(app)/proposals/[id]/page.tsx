@@ -1,7 +1,7 @@
 import { setRequestLocale } from 'next-intl/server';
 
 import { ProposalEditorShell } from '@/app/[locale]/(app)/proposals/[id]/editor-shell';
-import { apiServer } from '@/lib/api/client';
+import { apiServer } from '@/lib/api/server';
 import type { MeResponse } from '@bluedev/shared-types';
 
 export default async function ProposalDetailPage({

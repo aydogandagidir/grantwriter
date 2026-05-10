@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 
 import { Sidebar } from '@/components/app-shell/sidebar';
 import { Topbar } from '@/components/app-shell/topbar';
-import { apiServer } from '@/lib/api/client';
+import { apiServer } from '@/lib/api/server';
 import { createClient } from '@/lib/supabase/server';
 import type { MeResponse } from '@bluedev/shared-types';
 

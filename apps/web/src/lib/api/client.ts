@@ -1,18 +1,12 @@
 /**
- * Typed fetch wrapper for the FastAPI backend.
+ * Browser-side typed fetch wrapper.
  *
- * Two call patterns:
+ * Server-side callers (Route Handlers / Server Components / Server
+ * Actions) use the sibling `api/server.ts` instead — the two modules
+ * MUST stay split so client bundles never reach `next/headers`.
  *
- * 1. **Server-side** (Route Handlers, Server Components, Server Actions):
- *    use `apiServer(...)` — pulls the JWT from Supabase cookies via the
- *    server client and attaches it as Bearer auth.
- *
- * 2. **Client-side** (React Query hooks, form submissions):
- *    use `apiClient(...)` — pulls the JWT from the browser Supabase
- *    client.
- *
- * Both throw `ApiError` on non-2xx responses with the parsed JSON detail
- * if available; callers should let TanStack Query surface the error.
+ * Both throw `ApiError` on non-2xx responses with the parsed JSON
+ * detail when available; let TanStack Query surface the error.
  */
 
 import { env } from '@/lib/env';
@@ -33,7 +27,7 @@ export interface ApiRequestInit extends Omit<RequestInit, 'body'> {
   searchParams?: Record<string, string | number | boolean | undefined>;
 }
 
-function buildUrl(path: string, searchParams?: ApiRequestInit['searchParams']): string {
+export function buildUrl(path: string, searchParams?: ApiRequestInit['searchParams']): string {
   const base = env.apiUrl.replace(/\/$/, '');
   const cleaned = path.startsWith('/') ? path : `/${path}`;
   const url = new URL(`${base}${cleaned}`);
@@ -47,7 +41,7 @@ function buildUrl(path: string, searchParams?: ApiRequestInit['searchParams']): 
   return url.toString();
 }
 
-async function parseError(response: Response): Promise<ApiError> {
+export async function parseError(response: Response): Promise<ApiError> {
   let detail = response.statusText;
   let body: unknown;
   try {
@@ -61,7 +55,7 @@ async function parseError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, detail, body);
 }
 
-async function call<T>(
+export async function call<T>(
   path: string,
   init: ApiRequestInit,
   token: string | null,
@@ -89,34 +83,19 @@ async function call<T>(
   if (!response.ok) {
     throw await parseError(response);
   }
-  // 204 No Content — nothing to parse.
   if (response.status === 204) {
     return undefined as T;
   }
   return (await response.json()) as T;
 }
 
-// ── Client-side ─────────────────────────────────────────────────────────
-
 /**
  * Browser-side API call. Imports the Supabase browser client lazily so
- * this module stays import-safe on the server.
+ * this module stays import-safe in any client component.
  */
 export async function apiClient<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
   const { createClient } = await import('@/lib/supabase/client');
   const supabase = createClient();
-  const { data } = await supabase.auth.getSession();
-  return call<T>(path, init, data.session?.access_token ?? null);
-}
-
-// ── Server-side ─────────────────────────────────────────────────────────
-
-/**
- * Server-side API call (Route Handler / Server Component / Server Action).
- */
-export async function apiServer<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
-  const { createClient } = await import('@/lib/supabase/server');
-  const supabase = await createClient();
   const { data } = await supabase.auth.getSession();
   return call<T>(path, init, data.session?.access_token ?? null);
 }
