@@ -30,6 +30,11 @@ from src.core.db import get_db
 from src.main import create_app
 
 
+_MASTER_KEY = "test-master-key-32-bytes-padding!"
+"""Fixed dev master key — mirrors tests/security/test_byok.py so the
+BYOK store endpoint in step 2 can actually encrypt the canary key."""
+
+
 def _test_database_url() -> str | None:
     return os.environ.get("TEST_DATABASE_URL")
 
@@ -128,14 +133,14 @@ async def _seed_usage(
         await conn.execute(
             """
             insert into tenant_usage_log (
-              tenant_id, user_id, model, task, input_tokens, output_tokens,
-              cached_tokens, cost_usd
+              tenant_id, user_id, event_type, resource,
+              input_tokens, output_tokens, cached_tokens, cost_usd
             ) values ($1, $2, $3, $4, $5, $6, $7, $8)
             """,
             tenant_id,
             user_id,
-            "claude-sonnet-4-6",
-            "call_analyst",
+            "llm_call",
+            "claude-sonnet-4-6:call_analyst",
             1000,
             500,
             0,
@@ -149,6 +154,7 @@ def _settings_with_iyzico_webhook(secret: str = "wh_secret_xxx") -> Settings:
         iyzico_api_key="api",  # type: ignore[arg-type]
         iyzico_secret_key="secret",  # type: ignore[arg-type]
         supabase_jwt_secret=None,
+        llm_master_encryption_key=_MASTER_KEY,  # type: ignore[arg-type]
     )
 
 
@@ -231,6 +237,7 @@ async def _cleanup(pool: asyncpg.Pool, *, tenant_ids: list[uuid.UUID]) -> None:
 
 async def test_full_multi_tenant_isolation_round_trip(  # noqa: PLR0915
     pool: asyncpg.Pool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Step-by-step assertion that every Sprint-3 endpoint is tenant-safe.
 
@@ -239,6 +246,12 @@ async def test_full_multi_tenant_isolation_round_trip(  # noqa: PLR0915
     assertion in the very next step. The named-section comments mirror
     the plan's tenant-isolation matrix.
     """
+
+    # The BYOK store endpoint (step 2) requires the master key on the
+    # server. Set it for the duration of the test and clear the settings
+    # cache so the next get_settings() call picks it up.
+    monkeypatch.setenv("LLM_MASTER_ENCRYPTION_KEY", _MASTER_KEY)
+    get_settings.cache_clear()
 
     settings = _settings_with_iyzico_webhook()
 
@@ -344,16 +357,8 @@ async def test_full_multi_tenant_isolation_round_trip(  # noqa: PLR0915
             }
             raw_body = json.dumps(payload_event).encode("utf-8")
             sig = compute_signature(body=raw_body, secret="wh_secret_xxx")
-            wh_resp = await public.post(
-                "/api/v1/billing/iyzico-webhook",
-                content=raw_body,
-                headers={
-                    SIGNATURE_HEADER: sig,
-                    "Content-Type": "application/json",
-                },
-            )
-            # The public client was already aclosed; rebuild for the webhook.
-            # (Keeping it simple — use a fresh public client.)
+            # The webhook is unauthenticated, so it gets its own public
+            # client (no JWT override). Same lifetime as the inner block.
             public2 = _public_client(pool=pool, settings=settings)
             async with public2:
                 wh_resp = await public2.post(
