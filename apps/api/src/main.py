@@ -19,6 +19,12 @@ from fastapi.responses import JSONResponse
 from src.api.routes.audit import router as audit_router
 from src.api.routes.billing import router as billing_router
 from src.api.routes.citations import router as citations_router
+from src.api.routes.comments import (
+    comment_router as comments_id_router,
+)
+from src.api.routes.comments import (
+    proposal_router as comments_proposal_router,
+)
 from src.api.routes.invitations import (
     public_router as invitations_public_router,
 )
@@ -148,6 +154,8 @@ def create_app() -> FastAPI:
     app.include_router(invitations_public_router)
     app.include_router(members_router)
     app.include_router(versions_router)
+    app.include_router(comments_proposal_router)
+    app.include_router(comments_id_router)
 
     return app
 
