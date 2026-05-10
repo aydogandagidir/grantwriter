@@ -31,6 +31,7 @@ from src.api.routes.me import router as me_router
 from src.api.routes.members import router as members_router
 from src.api.routes.proposals import router as proposals_router
 from src.api.routes.usage import router as usage_router
+from src.api.routes.versions import router as versions_router
 from src.core.config import SettingsDep, get_settings
 from src.core.db import create_pool
 from src.core.logging import configure_logging
@@ -146,6 +147,7 @@ def create_app() -> FastAPI:
     app.include_router(invitations_tenant_router)
     app.include_router(invitations_public_router)
     app.include_router(members_router)
+    app.include_router(versions_router)
 
     return app
 
