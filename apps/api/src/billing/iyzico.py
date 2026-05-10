@@ -208,14 +208,19 @@ async def apply_plan_update(
     activate/cancel) or carried an unknown reference code.
 
     On cancel events we downgrade the tenant back to ``starter`` —
-    explicit downgrade is safer than leaving them at the prior tier.
+    explicit downgrade is safer than leaving them at the prior tier —
+    and clear ``tenants.iyzico_subscription_reference`` so the cancel
+    endpoint can no longer find a stale ref to call.
     """
+
+    subscription_ref = _extract_subscription_reference(event)
 
     if event.event_type in _PLAN_DEACTIVATING_EVENTS:
         downgrade = lookup_plan("iyz_starter_monthly") or PlanSpec(
             name="starter", monthly_proposal_limit=3
         )
         await _write_plan(conn, tenant_id=tenant_id, plan=downgrade)
+        await _clear_subscription_reference(conn, tenant_id=tenant_id)
         await _audit_plan_change(
             conn, tenant_id=tenant_id, event=event, plan=downgrade
         )
@@ -243,8 +248,56 @@ async def apply_plan_update(
         return None
 
     await _write_plan(conn, tenant_id=tenant_id, plan=plan)
+    if subscription_ref:
+        await _set_subscription_reference(
+            conn, tenant_id=tenant_id, reference=subscription_ref
+        )
     await _audit_plan_change(conn, tenant_id=tenant_id, event=event, plan=plan)
     return plan
+
+
+def _extract_subscription_reference(event: IyzicoEvent) -> str | None:
+    """Pull the subscriptionReferenceCode from the raw payload if present.
+
+    Iyzico spells it ``subscriptionReferenceCode`` in modern docs;
+    older examples use ``referenceCode``. We accept both and prefer
+    the modern spelling.
+    """
+
+    raw = event.raw
+    candidate = raw.get("subscriptionReferenceCode") or raw.get("referenceCode")
+    if isinstance(candidate, str) and candidate:
+        return candidate
+    return None
+
+
+async def _set_subscription_reference(
+    conn: asyncpg.Connection, *, tenant_id: UUID, reference: str
+) -> None:
+    await conn.execute(
+        """
+        update tenants
+           set iyzico_subscription_reference = $1,
+               updated_at = now()
+         where id = $2
+        """,
+        reference,
+        tenant_id,
+    )
+
+
+async def _clear_subscription_reference(
+    conn: asyncpg.Connection, *, tenant_id: UUID
+) -> None:
+    await conn.execute(
+        """
+        update tenants
+           set iyzico_subscription_reference = null,
+               updated_at = now()
+         where id = $1
+        """,
+        tenant_id,
+    )
 
 
 async def _write_plan(

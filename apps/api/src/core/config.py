@@ -71,12 +71,15 @@ class Settings(BaseSettings):
     celery_result_backend: str | None = None
 
     # Iyzico (TR payments). Outbound creds (api_key/secret_key) are
-    # placeholders until the subscription flow lands; webhook_secret is
-    # required as soon as the receiver is wired into the public URL.
+    # required for the checkout/cancel endpoints to function; the
+    # webhook_secret is independent (used only on the inbound side).
     iyzico_api_key: SecretStr | None = None
     iyzico_secret_key: SecretStr | None = None
     iyzico_base_url: str = "https://sandbox-api.iyzipay.com"
     iyzico_webhook_secret: SecretStr | None = None
+    # Where the FE renders the post-checkout return page. The hosted
+    # checkout redirects the user here after they enter card details.
+    iyzico_callback_url: str = "https://app.bluedev.dev/billing/return"
 
     # Observability — both packages are optional; init noop when DSN/token
     # is missing OR the SDK isn't installed (see src/core/observability.py).
