@@ -105,27 +105,36 @@ def _supabase_dir() -> Path:
 
 @pytest.fixture
 async def live_db_pool() -> AsyncIterator[Any]:
-    """Connect to a local Postgres (skip the test if unreachable).
+    """Connect to the integration test Postgres (skip if not configured).
 
-    Applies the Supabase auth schema stub first, then all migrations in
-    timestamp order. The stub is needed because several migrations reference
-    ``auth.users`` / ``auth.uid()``, which only exist on a real Supabase
-    instance — local Postgres needs the stub to satisfy those references.
+    **TEST_DATABASE_URL is required** — TICKET-002 closed the previous
+    default (``...localhost:5432/bluedev``) because integration suites
+    were trampling each other's schema on developer laptops where the
+    generic ``bluedev`` database had drifted. Each developer is expected
+    to point TEST_DATABASE_URL at a dedicated test DB (CI uses
+    ``bluedev_test`` via the api-ci workflow).
+
+    The fixture applies the Supabase auth stub + every migration in
+    lexical order before yielding the pool. Migrations are idempotent
+    (``CREATE TABLE IF NOT EXISTS``) so re-applying them per fixture
+    call against a clean test DB is safe.
     """
     import asyncpg
 
-    dsn = os.environ.get(
-        "TEST_DATABASE_URL",
-        os.environ.get(
-            "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/bluedev"
-        ),
-    )
+    dsn = os.environ.get("TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip(
+            "TEST_DATABASE_URL not set — skipping live-DB integration "
+            "tests. Point it at a dedicated test database (e.g. "
+            "postgresql://postgres:postgres@localhost:5432/bluedev_test) "
+            "to run this suite locally."
+        )
     try:
         pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=2)
         if pool is None:
             raise RuntimeError("create_pool returned None")
     except (OSError, asyncpg.PostgresError) as exc:
-        pytest.skip(f"live Postgres not reachable: {exc}")
+        pytest.skip(f"live Postgres not reachable at TEST_DATABASE_URL: {exc}")
 
     supabase_dir = _supabase_dir()
     auth_stub = supabase_dir / "auth_stub.sql"

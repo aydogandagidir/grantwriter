@@ -108,10 +108,14 @@ def _init_sentry(settings: Settings) -> tuple[bool, str | None]:
         return False, "sentry-sdk not installed"
 
     try:
+        # `release` is injected at deploy time (Railway start command pulls
+        # the current git SHA into SENTRY_RELEASE). Lets Sentry group errors
+        # by deploy + show "first seen in release X" / "regression in release Y".
         sentry_sdk.init(
             dsn=settings.sentry_dsn.get_secret_value(),
             environment=settings.sentry_environment or settings.app_env,
             traces_sample_rate=settings.sentry_traces_sample_rate,
+            release=settings.sentry_release,
             send_default_pii=False,  # we scrub everything ourselves
             before_send=scrub_event,
         )

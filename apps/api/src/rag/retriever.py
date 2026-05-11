@@ -102,6 +102,12 @@ class CorpusRetriever:
         limit: int,
     ) -> list[RetrievedChunk]:
         vec_literal = _vector_literal(embedding)
+        # `spc.id ASC` is a tiebreaker for ANN ties — without it, two
+        # candidates with identical cosine distance can swap positions
+        # between two calls in the same session (pgvector's heap traversal
+        # is not deterministic across plans). The score-then-id ordering
+        # keeps results reproducible, which the rerank flow relies on
+        # to map LLM-returned ranked_ids back onto the candidate set.
         query = """
             SELECT
               spc.id,
@@ -116,7 +122,7 @@ class CorpusRetriever:
             JOIN successful_proposals_corpus sp ON sp.id = spc.corpus_id
             WHERE sp.programme_id = $2
               AND spc.section = $3
-            ORDER BY spc.embedding::halfvec(3072) <=> $1::halfvec(3072)
+            ORDER BY spc.embedding::halfvec(3072) <=> $1::halfvec(3072), spc.id ASC
             LIMIT $4
         """
 

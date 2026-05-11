@@ -142,6 +142,31 @@ def create_app() -> FastAPI:
             "version": _resolve_version(settings.app_version),
         }
 
+    @app.get("/health/sentry-test", tags=["meta"])
+    async def health_sentry_test(settings: SettingsDep) -> dict[str, Any]:
+        """Deliberate-exception probe for the Sentry pipeline (TICKET-003).
+
+        Returns 503 when Sentry isn't configured — keeps unit tests + dev
+        laptops quiet. When Sentry is wired, raises a tagged exception so
+        the operator can confirm:
+
+        - The event lands in the Sentry project.
+        - The PII scrubber redacts the BYOK key shape we deliberately
+          embed in the message.
+        - The release tag matches the deployed git SHA.
+        """
+
+        if settings.sentry_dsn is None:
+            return {"status": "skipped", "reason": "SENTRY_DSN not configured"}
+
+        # The canary string includes a BYOK-key shape so the operator can
+        # verify scrub_event() redacted it before the event left the box.
+        canary = "sk-ant-AAAAAAAAAAAAAAAAAAAAAA"
+        raise RuntimeError(
+            f"sentry smoke test triggered (release={settings.sentry_release or '<unset>'}, "
+            f"canary={canary})"
+        )
+
     app.include_router(proposals_router)
     app.include_router(citations_router)
     app.include_router(jobs_router)

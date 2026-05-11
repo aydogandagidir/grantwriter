@@ -2,6 +2,8 @@
 
 Tracked items inherited from Sprint 3. Each entry maps to a GitHub issue (opened during closure) and a Sprint 4 backlog slot.
 
+**Status update:** TICKET-001 + TICKET-002 root-cause fixes shipped in a follow-up PR after the closure batch — the `flaky_pre_s3` marker has been removed and CI runs the full suite. TICKET-003 has its code-side wiring (release tracking + `/health/sentry-test` smoke endpoint); only the production DSN/token secrets are pending.
+
 ---
 
 ## TICKET-001 — `test_llm_rerank_reorders_candidates` non-determinism
