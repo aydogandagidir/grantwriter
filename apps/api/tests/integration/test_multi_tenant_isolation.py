@@ -29,7 +29,6 @@ from src.core.config import Settings, get_settings
 from src.core.db import get_db
 from src.main import create_app
 
-
 _MASTER_KEY = "test-master-key-32-bytes-padding!"
 """Fixed dev master key — mirrors tests/security/test_byok.py so the
 BYOK store endpoint in step 2 can actually encrypt the canary key."""
