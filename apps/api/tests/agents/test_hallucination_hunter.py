@@ -349,6 +349,149 @@ async def test_claim_check_caps_at_ten_calls() -> None:
     assert len(fake_provider.calls) == 10
 
 
+async def test_paraphrased_claim_unrelated_verdict_handled_gracefully() -> None:
+    """Paraphrased claim → ``unrelated`` verdict path.
+
+    When a writer paraphrases the source's actual contribution far enough
+    that the LLM judges the claim ``unrelated`` to the abstract, the
+    agent must:
+
+    1. NOT crash (the JSON contract is still well-formed).
+    2. Count the verdict as not-supports (so the pass rate drops).
+    3. Block export when the rate falls below threshold.
+
+    This is the explicit S3.D13.T1 prompt's "paraphrased claim edge case
+    → handled gracefully" check. The mixed-verdict shape (3 supports +
+    3 unrelated + 4 contradicts) gives a pass rate of 0.3 — below the
+    0.6 block threshold — so the recommendation must flip even though
+    no citation was outright fabricated.
+    """
+
+    verified_results = [
+        VerificationResult(
+            status="verified",
+            source="crossref",
+            match_score=0.95,
+            metadata={"title": f"Source {i}"},
+        )
+        for i in range(10)
+    ]
+    verifier = _StubVerifier(scripted=verified_results)
+
+    script = (
+        [
+            make_response(
+                text=_claim_verdict("supports"),
+                model="claude-sonnet-4-6",
+                provider="claude",
+            )
+            for _ in range(3)
+        ]
+        + [
+            make_response(
+                text=_claim_verdict("unrelated"),
+                model="claude-sonnet-4-6",
+                provider="claude",
+            )
+            for _ in range(3)
+        ]
+        + [
+            make_response(
+                text=_claim_verdict("contradicts"),
+                model="claude-sonnet-4-6",
+                provider="claude",
+            )
+            for _ in range(4)
+        ]
+    )
+    fake_provider = FakeProvider(name="claude", script=script)
+    router = build_router(providers={"claude": fake_provider})
+
+    excellence = " ".join(
+        f"Per [Author{i} 2023] paraphrased finding {i}." for i in range(10)
+    )
+
+    agent = HallucinationHunter(verifier=verifier, router=router)
+    result = await agent.run(
+        _agent_input(
+            excellence_md=excellence,
+            impact_md="",
+            implementation_md="",
+        )
+    )
+
+    assert result.status == "completed", (
+        "paraphrased/unrelated verdicts must not crash the agent"
+    )
+    report = HuntReport.model_validate(result.output)
+    # All 10 citations resolved cleanly; the block comes from claim
+    # verification, not citation status.
+    assert report.fabricated == 0
+    assert report.not_found == 0
+    # 3 supports / 10 sampled = 0.3
+    assert report.claim_check_pass_rate == 0.3
+    # 0.3 < 0.6 threshold → block_export
+    assert report.recommendation == "block_export"
+    # All 10 LLM calls completed (no crash).
+    assert len(fake_provider.calls) == 10
+
+
+async def test_malformed_claim_json_does_not_crash() -> None:
+    """LLM returns prose instead of JSON for one of the claim checks →
+    that single verdict drops out, the others still count, agent stays
+    completed. Belt-and-braces for production paraphrase-edge-cases
+    where the model rambles before emitting JSON.
+    """
+
+    verified_results = [
+        VerificationResult(
+            status="verified",
+            source="crossref",
+            match_score=0.95,
+            metadata={"title": f"Source {i}"},
+        )
+        for i in range(3)
+    ]
+    verifier = _StubVerifier(scripted=verified_results)
+
+    script = [
+        make_response(
+            text=_claim_verdict("supports"),
+            model="claude-sonnet-4-6",
+            provider="claude",
+        ),
+        # Garbage: no JSON, no verdict — the agent must NOT raise.
+        make_response(
+            text="I would describe this as supportive, but cannot say more.",
+            model="claude-sonnet-4-6",
+            provider="claude",
+        ),
+        make_response(
+            text=_claim_verdict("supports"),
+            model="claude-sonnet-4-6",
+            provider="claude",
+        ),
+    ]
+    fake_provider = FakeProvider(name="claude", script=script)
+    router = build_router(providers={"claude": fake_provider})
+
+    excellence = " ".join(f"Per [A{i} 2023] X{i}." for i in range(3))
+    agent = HallucinationHunter(verifier=verifier, router=router)
+    result = await agent.run(
+        _agent_input(
+            excellence_md=excellence, impact_md="", implementation_md=""
+        )
+    )
+
+    assert result.status == "completed", "malformed JSON must not crash"
+    report = HuntReport.model_validate(result.output)
+    # 2 valid supports out of 3 sampled = 0.667 → above 0.6 threshold,
+    # recommendation stays ok.
+    assert report.claim_check_pass_rate is not None
+    assert 0.6 <= report.claim_check_pass_rate <= 0.7
+    assert report.recommendation == "ok"
+
+
 async def test_llm_failure_degrades_to_none_pass_rate() -> None:
     """An LLM exception per call → pass_rate=None, no block from claim check."""
 

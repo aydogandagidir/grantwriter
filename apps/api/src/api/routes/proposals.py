@@ -23,13 +23,17 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import asyncpg
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sse_starlette.sse import EventSourceResponse
 
 from src.agents.base import AgentInput
 from src.agents.compliance_reviewer import ComplianceReport, ComplianceReviewer
+from src.agents.hallucination_hunter import HallucinationHunter, HuntReport
+from src.api.routes.citations import build_citation_cache
 from src.billing.quota import consume_quota
+from src.citations import CitationVerifier
 from src.compliance.distinctiveness import (
     DistinctivenessScore,
     DistinctivenessScorer,
@@ -37,6 +41,7 @@ from src.compliance.distinctiveness import (
     ProposalNotReadyError,
 )
 from src.core.auth import CurrentUserId
+from src.core.config import SettingsDep
 from src.core.db import get_db
 from src.core.llm_dep import get_llm_router
 from src.core.rate_limit import LLM_CALL, RateLimitDecision, rate_limit
@@ -44,6 +49,7 @@ from src.llm.router import LLMRouter
 from src.orchestrator.sse_publisher import channel_for
 from src.programs import get_module
 from src.programs._tubitak_base import ProdisField, TUBITAKBaseModule
+from src.programs.base import ValidationIssue
 from src.tasks.exports import (
     generate_proposal_docx_task,
     generate_proposal_xlsx_task,
@@ -282,28 +288,60 @@ async def enqueue_generation(
     )
 
 
+class ValidationReport(BaseModel):
+    """Combined output of ``POST /proposals/{id}/validate``.
+
+    Wraps the existing :class:`ComplianceReport` (formal rules + LLM
+    depth check) with the :class:`HuntReport` (citation + claim
+    verification) so the FE can render both surfaces from a single
+    request. S3.D13.T1 completion — Sprint 3 shipped the agent itself,
+    this PR wires it into the re-validate path that the editor uses
+    after manual edits to the draft.
+
+    Export gate:
+    - ``compliance.passed=False`` (existing semantics) — formal rule
+      blocker present.
+    - ``hallucination_hunter.recommendation == "block_export"`` —
+      fabricated citation OR sample claim pass rate below threshold.
+
+    Either signal disables the export button on the FE.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    compliance: ComplianceReport
+    hallucination_hunter: HuntReport | None = None
+    """``None`` when the hunt couldn't run (e.g. zero citations). The
+    FE treats ``None`` the same as ``recommendation="ok"``."""
+
+
 @router.post(
     "/{proposal_id}/validate",
-    response_model=ComplianceReport,
-    summary="Run compliance review against the persisted draft",
+    response_model=ValidationReport,
+    summary="Run compliance + hallucination hunter against the persisted draft",
 )
 async def validate_proposal(
     proposal_id: UUID,
     user_id: CurrentUserId,
+    settings: SettingsDep,
     conn: Annotated[asyncpg.Connection, Depends(get_db)],
     router_inst: Annotated[LLMRouter, Depends(get_llm_router)],
     _rate_check: Annotated[
         RateLimitDecision, Depends(rate_limit(LLM_CALL))
     ],
-) -> ComplianceReport:
-    """Re-run :class:`ComplianceReviewer` against the proposal's persisted draft.
+) -> ValidationReport:
+    """Re-run the export gate against the proposal's persisted draft.
 
     Used after the user edits the draft manually — the saga only runs
-    compliance once during generation; this endpoint surfaces the
-    "Re-validate" button. Persists the new compliance_report and
-    ai_disclosure_text back to the proposal row.
+    compliance + hunt once during generation; this endpoint surfaces the
+    "Re-validate" button. Runs both checks back-to-back so the FE gets
+    a fresh export decision in a single round trip.
 
-    - 200: returns the fresh ComplianceReport.
+    Persists the merged compliance_report (with the hunt embedded under
+    ``compliance_report.hallucination_hunter``, mirroring the saga's
+    persistence shape in ``orchestrator/draft_generator.py``).
+
+    - 200: returns the fresh :class:`ValidationReport`.
     - 404: proposal not found.
     - 429: rate limit exceeded (10 / 60s); ``Retry-After`` header present.
     """
@@ -352,10 +390,39 @@ async def validate_proposal(
         },
     )
 
-    agent = ComplianceReviewer(router=router_inst, conn=conn)
-    output = await agent.run(agent_input)
+    # 1. Compliance Reviewer (formal rules + HE depth check).
+    compliance_output = await ComplianceReviewer(router=router_inst, conn=conn).run(
+        agent_input
+    )
+    compliance = ComplianceReport.model_validate(compliance_output.output)
 
-    # Persist
+    # 2. Hallucination Hunter — share a single httpx client across the
+    # citation + (optional) abstract fetches so the verifier doesn't
+    # spin up a connection pool per call.
+    cache = await build_citation_cache(settings)
+    hunt: HuntReport | None = None
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        verifier = CitationVerifier(client=client, cache=cache)
+        hunter_output = await HallucinationHunter(
+            verifier=verifier, router=router_inst
+        ).run(agent_input)
+    if hunter_output.status == "completed" and hunter_output.output:
+        hunt = HuntReport.model_validate(hunter_output.output)
+
+    # 3. Merge hunt block into compliance — if fabricated citations
+    # exist we must surface them as a blocker so the FE export button
+    # disables. We add ONE issue summarising the hunt verdict instead
+    # of replicating every flagged citation; the full list lives in the
+    # hunt report itself.
+    if hunt is not None and hunt.recommendation == "block_export":
+        compliance = _attach_hunt_blocker(compliance, hunt)
+
+    # 4. Persist — keep the saga's shape (compliance fields + nested
+    # hallucination_hunter) so the existing FE consumers don't break.
+    persisted_report = {
+        **compliance.model_dump(mode="json"),
+        "hallucination_hunter": hunt.model_dump(mode="json") if hunt else None,
+    }
     await conn.execute(
         """
         update proposals
@@ -364,8 +431,8 @@ async def validate_proposal(
             updated_at = now()
         where id = $3
         """,
-        json.dumps(output.output),
-        output.output.get("ai_disclosure_text"),
+        json.dumps(persisted_report),
+        compliance.ai_disclosure_text,
         proposal_id,
     )
 
@@ -374,11 +441,57 @@ async def validate_proposal(
         extra={
             "proposal_id": str(proposal_id),
             "user_id": str(user_id),
-            "passed": output.output.get("passed"),
-            "issue_count": len(output.output.get("issues") or []),
+            "passed": compliance.passed,
+            "issue_count": len(compliance.issues),
+            "hunt_recommendation": hunt.recommendation if hunt else None,
+            "fabricated_citations": hunt.fabricated if hunt else 0,
+            "claim_pass_rate": hunt.claim_check_pass_rate if hunt else None,
         },
     )
-    return ComplianceReport.model_validate(output.output)
+    return ValidationReport(compliance=compliance, hallucination_hunter=hunt)
+
+
+def _attach_hunt_blocker(
+    compliance: ComplianceReport, hunt: HuntReport
+) -> ComplianceReport:
+    """Return a copy of ``compliance`` with one extra blocker issue + ``passed=False``.
+
+    Keeps ``ComplianceReport`` frozen-safe (Pydantic ``frozen=True``)
+    while still surfacing the hunt verdict in the same ``issues`` list
+    the FE already renders. The issue ``code="hunt_blocked"`` is the
+    discriminant the FE keys off to render the red "fabricated
+    citations" badge.
+    """
+
+    fabricated_or_unfound = hunt.fabricated + hunt.not_found
+    pass_rate = hunt.claim_check_pass_rate
+    pass_rate_str = f"{pass_rate:.0%}" if pass_rate is not None else "—"
+
+    blocker = ValidationIssue(
+        severity="blocker",
+        section=None,
+        code="hunt_blocked",
+        message_tr=(
+            f"Hallucination Hunter ihracatı engelledi: "
+            f"{fabricated_or_unfound} doğrulanamayan atıf, "
+            f"claim destekleme oranı {pass_rate_str}."
+        ),
+        message_en=(
+            f"Hallucination Hunter blocked export: "
+            f"{fabricated_or_unfound} unverified citation(s), "
+            f"claim support rate {pass_rate_str}."
+        ),
+        suggestion=(
+            "Open each flagged citation in the editor and either fix "
+            "the source reference or remove the unsupported claim."
+        ),
+    )
+    return compliance.model_copy(
+        update={
+            "passed": False,
+            "issues": [*compliance.issues, blocker],
+        }
+    )
 
 
 @router.get(

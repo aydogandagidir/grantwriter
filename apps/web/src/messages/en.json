@@ -196,6 +196,35 @@
     "saveEdit": "Update",
     "empty": "No comments yet."
   },
+  "validation": {
+    "title": "Compliance & citations",
+    "subtitle": "Re-run the export gate against the current draft.",
+    "revalidate": "Re-validate",
+    "revalidating": "Validating…",
+    "never": "Not validated yet.",
+    "passed": "Ready to export",
+    "failed": "Export blocked",
+    "issues": "Issues ({count})",
+    "noIssues": "No compliance issues.",
+    "severityBlocker": "Blocker",
+    "severityWarning": "Warning",
+    "severityInfo": "Info",
+    "hunt": {
+      "title": "Citation verification",
+      "ok": "All citations verified.",
+      "blocked": "Fabricated or unverified citations detected.",
+      "stats": "{verified} / {total} verified · {fabricated} fabricated · {notFound} not found",
+      "claimRate": "Claim support rate: {pct}%",
+      "claimRateUnknown": "Claim support rate not measured.",
+      "flaggedList": "Flagged citations",
+      "flaggedItem": "{section}: {raw} ({status})"
+    },
+    "export": {
+      "ready": "Export DOCX",
+      "blocked": "Export blocked — fix flagged citations to proceed",
+      "blockedReason": "Hallucination Hunter flagged this draft. Address the items above before exporting."
+    }
+  },
   "errors": {
     "generic": "Something went wrong.",
     "unauthorized": "You don't have permission for this action.",
