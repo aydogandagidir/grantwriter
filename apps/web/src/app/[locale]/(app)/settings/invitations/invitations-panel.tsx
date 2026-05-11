@@ -136,8 +136,8 @@ export function InvitationsPanel() {
                     <FormLabel>{t('role')}</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
+                        <SelectTrigger aria-label={t('role')}>
+                          <SelectValue placeholder={tMembers('roles.member')} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -194,6 +194,7 @@ export function InvitationsPanel() {
                         size="icon"
                         onClick={() => onRevoke(inv.id)}
                         disabled={revoke.isPending}
+                        aria-label={t('revoke')}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

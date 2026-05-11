@@ -4,6 +4,7 @@ import { LogOut, User } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { LocaleSwitcher } from '@/components/app-shell/locale-switcher';
+import { MobileNav } from '@/components/app-shell/mobile-nav';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,10 +21,12 @@ export function Topbar({
   email,
   displayName,
   tenantName,
+  role,
 }: {
   email: string | null;
   displayName: string | null;
   tenantName: string;
+  role: 'owner' | 'admin' | 'member' | 'viewer';
 }) {
   const t = useTranslations('auth');
   const initials = (displayName ?? email ?? '?')
@@ -34,8 +37,11 @@ export function Topbar({
     .join('');
 
   return (
-    <header className="flex h-14 items-center justify-between gap-4 border-b bg-card/40 px-6">
-      <div className="text-sm font-medium text-muted-foreground">{tenantName}</div>
+    <header className="flex h-14 items-center justify-between gap-4 border-b bg-card/40 px-4 md:px-6">
+      <div className="flex items-center gap-2">
+        <MobileNav role={role} />
+        <div className="text-sm font-medium text-muted-foreground">{tenantName}</div>
+      </div>
       <div className="flex items-center gap-2">
         <LocaleSwitcher />
         <DropdownMenu>

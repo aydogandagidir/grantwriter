@@ -57,6 +57,7 @@ export default async function AppLayout({
           email={me.email}
           displayName={me.display_name}
           tenantName={me.tenant_name}
+          role={me.role}
         />
         <main className="flex-1 overflow-y-auto bg-muted/20 p-6">{children}</main>
       </div>

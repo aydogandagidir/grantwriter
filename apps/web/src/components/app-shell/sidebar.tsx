@@ -17,19 +17,19 @@ import type { ComponentType } from 'react';
 import { Link, usePathname } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 
-interface NavItem {
+export interface NavItem {
   href: string;
   i18nKey: string;
   icon: ComponentType<{ className?: string }>;
   adminOnly?: boolean;
 }
 
-const PRIMARY_NAV: NavItem[] = [
+export const PRIMARY_NAV: NavItem[] = [
   { href: '/dashboard', i18nKey: 'dashboard', icon: Home },
   { href: '/proposals', i18nKey: 'proposals', icon: FileText },
 ];
 
-const SETTINGS_NAV: NavItem[] = [
+export const SETTINGS_NAV: NavItem[] = [
   { href: '/settings/llm-config', i18nKey: 'llmConfig', icon: KeyRound },
   { href: '/settings/members', i18nKey: 'members', icon: Users, adminOnly: true },
   { href: '/settings/invitations', i18nKey: 'invitations', icon: Mail, adminOnly: true },
@@ -63,16 +63,18 @@ export function Sidebar({ role }: { role: 'owner' | 'admin' | 'member' | 'viewer
   );
 }
 
-function SidebarSection({
+export function SidebarSection({
   items,
   pathname,
   isAdmin,
   t,
+  onNavigate,
 }: {
   items: NavItem[];
   pathname: string;
   isAdmin: boolean;
   t: (key: string) => string;
+  onNavigate?: () => void;
 }) {
   return (
     <>
@@ -84,6 +86,7 @@ function SidebarSection({
           <Link
             key={item.href}
             href={item.href}
+            onClick={onNavigate}
             className={cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
               active

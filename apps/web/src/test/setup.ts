@@ -1,5 +1,13 @@
 import '@testing-library/jest-dom/vitest';
 
+import { toHaveNoViolations } from 'jest-axe';
+import { expect } from 'vitest';
+
+// jest-axe ships a custom matcher; vitest's expect supports the same
+// extend() API so we wire it once here. Now `expect(html).toHaveNoViolations()`
+// works in any test file.
+expect.extend(toHaveNoViolations);
+
 // jsdom doesn't ship the matchMedia primitive that some shadcn components
 // (Toast, Tooltip side detection) read on mount. Stub it so render() doesn't
 // blow up before the test even gets to assert anything.
