@@ -33,20 +33,47 @@ def _full_he_draft_outputs(
     Defaults match the clean fixture in
     ``tests/programs/test_horizon_eu_ria.py`` so we know it passes the
     rule layer; tests override individual sections to inject violations.
+    Empty-string overrides are honoured (``is None`` check, not falsy)
+    so tests can deliberately simulate a missing section.
     """
 
-    excellence = excellence_md or (
+    excellence = excellence_md if excellence_md is not None else (
         "## 1.1 Objectives and ambition\n\nA concrete objective for digital twin systems.\n\n"
         "## 1.2 Methodology\n\nGender dimension is integrated.\n\n"
         "## 1.3 State of the art\n\nReferences here.\n\n"
         "## 1.4 Open science practices\n\nFAIR + DMP.\n"
     )
-    impact = impact_md or (
-        "## 2.1 Project's pathways towards impact\n\nKIPs detailed.\n\n"
-        "## 2.2 Measures to maximise impact\n\nDNSH considered against the six environmental objectives.\n\n"
-        "## 2.3 Summary canvas (key impact pathways)\n\nCanvas table.\n"
+    impact = impact_md if impact_md is not None else (
+        "## 2.1 Project's pathways towards impact\n\n"
+        "Key Impact Pathways are detailed across scientific, economic, and "
+        "societal dimensions, with quantified KPIs and time-bound targets. "
+        "Each pathway maps a clear chain from project results to long-term "
+        "outcomes — adoption metrics, behavioural shifts, regulatory "
+        "uptake, and cost-savings the consortium has signed up to track for "
+        "five years post-grant.\n\n"
+        "## 2.2 Measures to maximise impact\n\n"
+        "Comprehensive Do No Significant Harm (DNSH) assessment covers the "
+        "six EU Taxonomy environmental objectives. We assess Climate change "
+        "mitigation through lifecycle emissions modelling; Climate change "
+        "adaptation via stress-testing the digital twin against extreme "
+        "weather scenarios; Water and marine resources through the project's "
+        "water-cycle footprint accounting; Circular economy through reusable "
+        "component design and end-of-life recovery planning; Pollution "
+        "prevention via embedded sensor calibration and disposal protocols; "
+        "and Biodiversity by avoiding habitat-sensitive deployment sites and "
+        "running an ecological pre-screen for every pilot location. The no "
+        "significant harm principle is upheld across all six dimensions, "
+        "with mitigations documented and reviewed quarterly by an "
+        "independent environmental advisor.\n\n"
+        "## 2.3 Summary canvas (key impact pathways)\n\nCanvas table "
+        "summarises the pathways and their quantitative indicators, "
+        "stakeholders, and intervention timelines for the next five years. "
+        "The communication and dissemination plan addresses both academic "
+        "and policy audiences, with localised translations into the four "
+        "primary languages spoken across the consortium's pilot regions, "
+        "and an open-data portal mirroring every shareable artefact.\n"
     )
-    implementation = implementation_md or (
+    implementation = implementation_md if implementation_md is not None else (
         "## 3.1 Work plan and resources\n\nWPs.\n\n"
         "## 3.2 Capacity of the participants\n\nTeam.\n\n"
         "## 3.3 Consortium as a whole\n\nGovernance.\n"
@@ -522,6 +549,119 @@ def test_agent_in_registry() -> None:
 
     assert "compliance_reviewer" in AGENTS
     assert AGENTS["compliance_reviewer"] is ComplianceReviewer
+
+
+# ── DNSH rule layer (S3.D14) ────────────────────────────────────────────
+
+
+_DNSH_OBJECTIVE_COUNT = 6
+
+
+async def test_dnsh_rule_layer_empty_impact_flags_eight() -> None:
+    """An impact_md of "" → 1 too_short + 6 objective_missing + 1 phrase_missing."""
+
+    agent, _ = _agent()
+    previous = _full_he_draft_outputs(impact_md="")
+    previous["call_analyst"] = _call_analyst_output()
+
+    output = await agent.run(_input(previous_outputs=previous))
+
+    report = ComplianceReport.model_validate(output.output)
+    codes = _codes(report)
+    assert codes.count("dnsh_too_short") == 1
+    assert codes.count("dnsh_objective_missing") == _DNSH_OBJECTIVE_COUNT
+    assert codes.count("dnsh_phrase_missing") == 1
+
+
+async def test_dnsh_rule_layer_short_paragraph_flags_too_short() -> None:
+    """50-word DNSH paragraph → too_short + several objective_missing."""
+
+    impact_md = (
+        "## 2.2 Measures to maximise impact\n\n"
+        "Brief DNSH note: we considered Climate change mitigation and "
+        "Climate change adaptation; circular economy was lightly touched.\n"
+    )
+    agent, _ = _agent()
+    previous = _full_he_draft_outputs(impact_md=impact_md)
+    previous["call_analyst"] = _call_analyst_output()
+
+    output = await agent.run(_input(previous_outputs=previous))
+    report = ComplianceReport.model_validate(output.output)
+    codes = _codes(report)
+    assert "dnsh_too_short" in codes
+    # At least 3 objectives missing (water, pollution, biodiversity).
+    missing = [c for c in codes if c == "dnsh_objective_missing"]
+    assert len(missing) >= 3
+    assert "dnsh_phrase_missing" in codes
+
+
+async def test_dnsh_rule_layer_complete_section_clean() -> None:
+    """Default _full_he_draft_outputs impact passes the rule layer."""
+
+    agent, _ = _agent()
+    previous = _full_he_draft_outputs()
+    previous["call_analyst"] = _call_analyst_output()
+
+    output = await agent.run(_input(previous_outputs=previous))
+    report = ComplianceReport.model_validate(output.output)
+    codes = _codes(report)
+    assert "dnsh_too_short" not in codes
+    assert "dnsh_objective_missing" not in codes
+    assert "dnsh_phrase_missing" not in codes
+
+
+async def test_dnsh_rule_layer_skipped_for_non_he_programme() -> None:
+    """TÜBİTAK 1501 must NOT trigger DNSH rule-layer issues."""
+
+    agent, _ = _agent(primary_script=[])  # no LLM call expected
+    previous = _full_he_draft_outputs(impact_md="")  # would trigger DNSH on HE
+    previous["call_analyst"] = _call_analyst_output()
+
+    output = await agent.run(
+        _input(programme_id="tubitak_1501", previous_outputs=previous)
+    )
+    report = ComplianceReport.model_validate(output.output)
+    codes = _codes(report)
+    assert "dnsh_too_short" not in codes
+    assert "dnsh_objective_missing" not in codes
+    assert "dnsh_phrase_missing" not in codes
+
+
+async def test_dnsh_rule_layer_stacks_with_llm_dnsh_inadequate() -> None:
+    """Rule codes are NEW; the existing LLM ``dnsh_inadequate`` still fires.
+
+    The empty impact_md triggers all rule-layer codes; the LLM canned
+    response says DNSH is also inadequate (warning) — both rows in the
+    same report, distinct codes, distinct namespaces.
+    """
+
+    canned = json.dumps(
+        {
+            "dnsh": {
+                "present": False,
+                "severity": "warning",
+                "explanation": "Impact section omits DNSH evaluation.",
+            },
+            "gender_dimension": {
+                "present": True, "severity": "ok", "explanation": "ok"
+            },
+            "open_science": {
+                "present": True, "severity": "ok", "explanation": "ok"
+            },
+        }
+    )
+    agent, _ = _agent(canned_text=canned)
+    previous = _full_he_draft_outputs(impact_md="")
+    previous["call_analyst"] = _call_analyst_output()
+
+    output = await agent.run(_input(previous_outputs=previous))
+    report = ComplianceReport.model_validate(output.output)
+    codes = _codes(report)
+    assert "dnsh_too_short" in codes  # rule layer
+    assert "dnsh_inadequate" in codes  # LLM layer
+    # The two namespaces don't shadow each other.
+    assert codes.count("dnsh_inadequate") == 1
+    assert codes.count("dnsh_too_short") == 1
 
 
 # ── Type sanity ─────────────────────────────────────────────────────────

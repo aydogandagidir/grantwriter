@@ -31,6 +31,7 @@ from src.agents import ExcellenceWriter
 from src.agents.base import AgentInput, AgentOutput
 from src.llm.base import LLMRequest, LLMResponse, LLMUsage
 from src.programs import REGISTRY
+
 from tests.llm.conftest import FakeProvider, build_router
 
 # Per-agent prompt-size budget (bytes) before any RAG context or brief

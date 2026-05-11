@@ -16,12 +16,32 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from src.api.routes.audit import router as audit_router
+from src.api.routes.billing import router as billing_router
 from src.api.routes.citations import router as citations_router
+from src.api.routes.comments import (
+    comment_router as comments_id_router,
+)
+from src.api.routes.comments import (
+    proposal_router as comments_proposal_router,
+)
+from src.api.routes.invitations import (
+    public_router as invitations_public_router,
+)
+from src.api.routes.invitations import (
+    tenant_router as invitations_tenant_router,
+)
 from src.api.routes.jobs import router as jobs_router
+from src.api.routes.llm_config import router as llm_config_router
+from src.api.routes.me import router as me_router
+from src.api.routes.members import router as members_router
 from src.api.routes.proposals import router as proposals_router
+from src.api.routes.usage import router as usage_router
+from src.api.routes.versions import router as versions_router
 from src.core.config import SettingsDep, get_settings
 from src.core.db import create_pool
 from src.core.logging import configure_logging
+from src.core.observability import init_observability
 
 _PACKAGE_NAME = "bluedev-grantwriter-api"
 
@@ -51,6 +71,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
 
     settings = get_settings()
+    # Stand up Sentry + Logtail before opening any other resource so a
+    # failure during pool init still ships an error to Sentry.
+    app.state.observability_report = init_observability(settings)
     if settings.database_url is not None:
         app.state.db_pool = await create_pool()
         logger.info("db_pool_opened")
@@ -122,6 +145,17 @@ def create_app() -> FastAPI:
     app.include_router(proposals_router)
     app.include_router(citations_router)
     app.include_router(jobs_router)
+    app.include_router(llm_config_router)
+    app.include_router(usage_router)
+    app.include_router(audit_router)
+    app.include_router(billing_router)
+    app.include_router(me_router)
+    app.include_router(invitations_tenant_router)
+    app.include_router(invitations_public_router)
+    app.include_router(members_router)
+    app.include_router(versions_router)
+    app.include_router(comments_proposal_router)
+    app.include_router(comments_id_router)
 
     return app
 

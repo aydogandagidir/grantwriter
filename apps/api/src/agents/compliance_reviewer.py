@@ -5,7 +5,7 @@ and in parallel with Distinctiveness; it surfaces formal-rule violations
 the writers may have missed and (for Horizon Europe) auto-generates the
 AI Disclosure required on Standard Application Form page 32.
 
-Three layers of checking:
+Four layers of checking:
 
 1. **Programme rule layer** — delegates to
    :meth:`BaseProgramModule.validate_draft`. Page limits, required
@@ -14,7 +14,12 @@ Three layers of checking:
 2. **Programme-agnostic key-term coverage** — every term the Call
    Analyst extracted as ``key_terms_to_use`` should appear in the draft.
    Each missing term is one ``missing_key_term`` warning.
-3. **HE-only LLM depth check** — Sonnet 4.6 reviews DNSH, gender
+3. **HE-only DNSH rule layer** — deterministic substring + word-count
+   gate over the impact section. Issue codes ``dnsh_too_short``,
+   ``dnsh_objective_missing``, and ``dnsh_phrase_missing`` stack with
+   the LLM ``dnsh_inadequate`` verdict (different namespaces — they
+   don't shadow each other).
+4. **HE-only LLM depth check** — Sonnet 4.6 reviews DNSH, gender
    dimension, and Open Science / DMP for substantive treatment. Mentioning
    "DNSH" once still passes the substring rule but the LLM may flag it as
    shallow — distinct issue codes (``dnsh_inadequate`` vs ``missing_dnsh``)
@@ -128,7 +133,11 @@ class ComplianceReviewer(BaseAgent):
         # 2. Key-term coverage (every programme).
         issues.extend(_check_key_terms_coverage(draft, metadata.key_terms_to_use))
 
-        # 3. HE-only LLM depth checks.
+        # 3. HE-only DNSH rule layer (deterministic, stacks with LLM check).
+        if _is_horizon_eu(input.programme_id):
+            issues.extend(_check_dnsh_rules(draft))
+
+        # 4. HE-only LLM depth checks.
         cost_usd = 0.0
         tokens_used: dict[str, int] = {}
         llm_check_skipped: str | None = None
@@ -356,6 +365,103 @@ def _is_horizon_eu(programme_id: str) -> bool:
     """
 
     return programme_id.startswith("horizon_eu")
+
+
+# ── HE DNSH rule layer ────────────────────────────────────────────────
+
+
+# The six environmental objectives from the EU Taxonomy DNSH article;
+# every HE proposal's impact section must address each of them at least
+# in passing. Lower-cased so substring matches stay permissive.
+_DNSH_OBJECTIVES: tuple[str, ...] = (
+    "climate change mitigation",
+    "climate change adaptation",
+    "water and marine resources",
+    "circular economy",
+    "pollution prevention",
+    "biodiversity",
+)
+# Either spelling is fine — the canonical phrase shows up both ways
+# across the HE templates we're targeting.
+_DNSH_PHRASES: tuple[str, ...] = ("no significant harm", "do no significant harm")
+_DNSH_MIN_WORDS = 200
+"""HE templates expect a substantive DNSH treatment. Anything below 200
+words in the impact section is almost certainly token DNSH coverage —
+useful as a heuristic gate even before the LLM weighs in."""
+
+
+def _check_dnsh_rules(draft: dict[str, Any]) -> list[ValidationIssue]:
+    """Deterministic HE DNSH gate over the impact section.
+
+    Stacks with :func:`_verdicts_to_issues`'s LLM-judged
+    ``dnsh_inadequate``: the rule layer guarantees the basics
+    (length + topic coverage + canonical phrase), the LLM judges depth.
+    The two namespaces don't collide.
+
+    Issue codes:
+    - ``dnsh_too_short`` (warning) — impact_md word count below the
+      threshold.
+    - ``dnsh_objective_missing`` (warning) — one of the six EU
+      Taxonomy environmental objectives is not mentioned at all.
+    - ``dnsh_phrase_missing`` (info) — the "no significant harm"
+      phrase is absent.
+    """
+
+    impact_md = str(draft.get("impact_md") or "")
+    lower = impact_md.lower()
+    issues: list[ValidationIssue] = []
+
+    word_count = len(impact_md.split())
+    if word_count < _DNSH_MIN_WORDS:
+        issues.append(
+            ValidationIssue(
+                severity="warning",
+                section="impact",
+                code="dnsh_too_short",
+                message_tr=(
+                    f"DNSH bölümü çok kısa ({word_count} kelime, "
+                    f"minimum {_DNSH_MIN_WORDS})."
+                ),
+                message_en=(
+                    f"DNSH section is too short ({word_count} words, "
+                    f"minimum {_DNSH_MIN_WORDS})."
+                ),
+            )
+        )
+
+    for objective in _DNSH_OBJECTIVES:
+        if objective not in lower:
+            issues.append(
+                ValidationIssue(
+                    severity="warning",
+                    section="impact",
+                    code="dnsh_objective_missing",
+                    message_tr=(
+                        f"DNSH çevresel hedefi '{objective}' adres edilmemiş."
+                    ),
+                    message_en=(
+                        f"DNSH environmental objective '{objective}' "
+                        "not addressed."
+                    ),
+                )
+            )
+
+    if not any(p in lower for p in _DNSH_PHRASES):
+        issues.append(
+            ValidationIssue(
+                severity="info",
+                section="impact",
+                code="dnsh_phrase_missing",
+                message_tr=(
+                    "'Do no significant harm' anahtar ifadesi geçmiyor."
+                ),
+                message_en=(
+                    "'Do no significant harm' phrase not found."
+                ),
+            )
+        )
+
+    return issues
 
 
 def _check_key_terms_coverage(

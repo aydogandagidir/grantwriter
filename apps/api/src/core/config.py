@@ -70,6 +70,32 @@ class Settings(BaseSettings):
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
 
+    # Iyzico (TR payments). Outbound creds (api_key/secret_key) are
+    # required for the checkout/cancel endpoints to function; the
+    # webhook_secret is independent (used only on the inbound side).
+    iyzico_api_key: SecretStr | None = None
+    iyzico_secret_key: SecretStr | None = None
+    iyzico_base_url: str = "https://sandbox-api.iyzipay.com"
+    iyzico_webhook_secret: SecretStr | None = None
+    # Where the FE renders the post-checkout return page. The hosted
+    # checkout redirects the user here after they enter card details.
+    iyzico_callback_url: str = "https://app.bluedev.dev/billing/return"
+
+    # Observability — both packages are optional; init noop when DSN/token
+    # is missing OR the SDK isn't installed (see src/core/observability.py).
+    sentry_dsn: SecretStr | None = None
+    sentry_environment: str | None = None  # defaults to app_env at init
+    sentry_traces_sample_rate: float = 0.0  # errors only by default
+    logtail_token: SecretStr | None = None
+    observability_enabled: bool = True
+
+    # Email (Resend) — optional; init noop when key absent OR package missing.
+    # Mirrors the observability pattern in src/core/observability.py.
+    resend_api_key: SecretStr | None = None
+    email_from: str = "Bluedev GrantWriter <noreply@bluedev.dev>"
+    app_url: str = "https://app.bluedev.dev"  # used to compose invite accept URLs
+    email_enabled: bool = True  # kill-switch independent of API key presence
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
