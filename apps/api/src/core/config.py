@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     sentry_dsn: SecretStr | None = None
     sentry_environment: str | None = None  # defaults to app_env at init
     sentry_traces_sample_rate: float = 0.0  # errors only by default
+    sentry_release: str | None = None  # set to git SHA at deploy time (TICKET-003)
     logtail_token: SecretStr | None = None
     observability_enabled: bool = True
 

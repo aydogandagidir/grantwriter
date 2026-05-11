@@ -144,5 +144,4 @@ addopts = "-ra --strict-markers --strict-config"
 markers = [
   "slow: marks tests as slow (deselect with -m 'not slow')",
   "integration: requires a live database connection",
-  "flaky_pre_s3: pre-Sprint-3 tests that flake on local Postgres state or non-determinism — see docs/sprint-3-known-issues.md for the root-cause tickets",
 ]

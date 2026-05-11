@@ -220,21 +220,21 @@ async def test_scores_are_in_descending_order(
 # ── LLM re-rank ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.flaky_pre_s3
 async def test_llm_rerank_reorders_candidates(
     pool: asyncpg.Pool, seeded_corpus: dict[str, object]
 ) -> None:
     """A FakeProvider returns a re-ranked id order; the retriever should
     honour it (subject to top_k cap).
 
-    .. note::
+    Two TICKET-001 fixes work together:
 
-        Marked ``flaky_pre_s3`` until TICKET-001 lands — the ANN
-        ordering pgvector returns for tied cosine distances varies
-        between two adjacent retrieve() calls in the same session, and
-        the canned LLM verdict computed from the first call no longer
-        maps cleanly onto the second call's candidate set. The retriever
-        is correct; the test setup is fragile. Sprint 4 backlog.
+    1. ``_fetch_candidates`` now appends ``spc.id ASC`` as a tiebreaker
+       so cosine-equivalent candidates don't swap positions between
+       calls.
+    2. The test pulls a larger pool than top_k so the retrieve()
+       branch that says "candidates <= top_k → skip rerank" doesn't
+       short-circuit. With three seeded proposals × one excellence
+       chunk each, top_k=2 + candidate_pool=10 → 3 > 2 → rerank runs.
     """
 
     embedder = seeded_corpus["embedder"]
@@ -243,7 +243,7 @@ async def test_llm_rerank_reorders_candidates(
         "verification YOLO",
         programme_id="horizon_eu_ria",
         section="excellence",
-        top_k=3,
+        top_k=10,  # pull everything available so reverse_ids covers all candidates
         candidate_pool=10,
         rerank=False,
     )
@@ -264,10 +264,12 @@ async def test_llm_rerank_reorders_candidates(
         "verification YOLO",
         programme_id="horizon_eu_ria",
         section="excellence",
-        top_k=3,
+        top_k=2,  # smaller than candidate_pool so the rerank branch executes
         candidate_pool=10,
     )
+    # Reranked output is the LLM's order, truncated to top_k.
     assert [str(c.id) for c in reranked] == reverse_ids[: len(reranked)]
+    assert len(reranked) == 2
     assert len(primary.calls) == 1
     sent_request, model_used, _ = primary.calls[0]
     assert sent_request.task == "rerank"
