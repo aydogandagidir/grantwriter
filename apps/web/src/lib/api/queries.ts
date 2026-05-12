@@ -11,9 +11,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   AuditListResponse,
   BillingStatus,
+  CallCreate,
+  CallListResponse,
   CheckoutResponse,
   CommentListResponse,
   CommentRecord,
+  ExportEnqueued,
+  GenerateEnqueued,
   InvitationCreated,
   InvitationListResponse,
   InvitationPreview,
@@ -21,6 +25,11 @@ import type {
   LlmConfigTestResponse,
   MeResponse,
   MemberListResponse,
+  ProgrammeListResponse,
+  ProposalCreate,
+  ProposalDetail,
+  ProposalListResponse,
+  ProposalUpdate,
   UsageReport,
   ValidationReport,
   VersionListResponse,
@@ -44,6 +53,10 @@ export const queryKeys = {
   comments: (proposalId: string, opts?: { includeResolved?: boolean }) =>
     ['comments', proposalId, opts ?? {}] as const,
   validation: (proposalId: string) => ['validation', proposalId] as const,
+  programmes: ['programmes'] as const,
+  calls: (programmeId?: string) => ['calls', programmeId ?? 'all'] as const,
+  proposalList: ['proposals'] as const,
+  proposal: (id: string) => ['proposals', id] as const,
 };
 
 // ── /me ─────────────────────────────────────────────────────────────────
@@ -340,4 +353,128 @@ export function useValidateProposal(proposalId: string) {
 export function useCachedValidation(proposalId: string) {
   const qc = useQueryClient();
   return qc.getQueryData<ValidationReport>(queryKeys.validation(proposalId));
+}
+
+// ── Programmes catalog ──────────────────────────────────────────────────
+
+export function useProgrammes() {
+  return useQuery({
+    queryKey: queryKeys.programmes,
+    queryFn: () => apiClient<ProgrammeListResponse>('/api/v1/programmes'),
+    // The catalog is small and changes once per quarter; keep it warm
+    // across page transitions.
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// ── Calls catalog ───────────────────────────────────────────────────────
+
+export function useCalls(programmeId?: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.calls(programmeId),
+    queryFn: () =>
+      apiClient<CallListResponse>('/api/v1/calls', {
+        searchParams: { programme_id: programmeId },
+      }),
+    enabled: opts.enabled ?? Boolean(programmeId),
+  });
+}
+
+export function useCreateCall() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CallCreate) =>
+      apiClient('/api/v1/calls', { method: 'POST', body: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['calls'] }),
+  });
+}
+
+// ── Proposals CRUD ──────────────────────────────────────────────────────
+
+export function useProposals() {
+  return useQuery({
+    queryKey: queryKeys.proposalList,
+    queryFn: () =>
+      apiClient<ProposalListResponse>('/api/v1/proposals'),
+  });
+}
+
+export function useProposal(id: string) {
+  return useQuery({
+    queryKey: queryKeys.proposal(id),
+    queryFn: () =>
+      apiClient<ProposalDetail>(`/api/v1/proposals/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useCreateProposal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ProposalCreate) =>
+      apiClient<ProposalDetail>('/api/v1/proposals', {
+        method: 'POST',
+        body: input,
+      }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: queryKeys.proposalList });
+      qc.setQueryData(queryKeys.proposal(data.id), data);
+    },
+  });
+}
+
+export function useUpdateProposal(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ProposalUpdate) =>
+      apiClient<ProposalDetail>(`/api/v1/proposals/${id}`, {
+        method: 'PATCH',
+        body: input,
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(queryKeys.proposal(id), data);
+      qc.invalidateQueries({ queryKey: queryKeys.proposalList });
+    },
+  });
+}
+
+export function useDeleteProposal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient(`/api/v1/proposals/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.proposalList }),
+  });
+}
+
+/**
+ * Kick off the 7-agent saga. The mutation resolves immediately with a
+ * Celery job id + a stream URL the caller can subscribe to for progress.
+ * Detail-page state is invalidated so the next `useProposal()` read
+ * picks up the `status=generating` flip.
+ */
+export function useGenerateProposal(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiClient<GenerateEnqueued>(`/api/v1/proposals/${id}/generate`, {
+        method: 'POST',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.proposal(id) }),
+  });
+}
+
+/**
+ * Enqueue a DOCX or XLSX export. Returns the Celery job id; the FE
+ * polls `/api/v1/jobs/{id}` for the signed URL once the worker uploads
+ * the file to Supabase Storage.
+ */
+export function useExportProposal(id: string) {
+  return useMutation({
+    mutationFn: (format: 'docx' | 'xlsx' = 'docx') =>
+      apiClient<ExportEnqueued>(`/api/v1/proposals/${id}/export`, {
+        method: 'POST',
+        body: { format },
+      }),
+  });
 }
