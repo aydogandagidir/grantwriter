@@ -223,3 +223,179 @@ export interface ValidationReport {
   compliance: ComplianceReport;
   hallucination_hunter: HuntReport | null;
 }
+
+// ── Programmes (catalog) ────────────────────────────────────────────────
+
+export type ProgrammeLanguage = 'tr' | 'en' | 'both';
+
+export interface ProgrammeSummary {
+  id: string;
+  name_tr: string;
+  name_en: string;
+  funder: string;
+  language: ProgrammeLanguage;
+  description_tr: string | null;
+  description_en: string | null;
+  active: boolean;
+}
+
+export interface ProgrammeListResponse {
+  programmes: ProgrammeSummary[];
+}
+
+// ── Calls (open-call catalog) ───────────────────────────────────────────
+
+export type CallSource =
+  | 'eu_ft_portal'
+  | 'nlnet'
+  | 'cascade'
+  | 'tubitak'
+  | 'kosgeb'
+  | 'manual';
+
+export type CallStatus = 'open' | 'closing_soon' | 'closed' | 'draft';
+
+export interface CallSummary {
+  id: string;
+  programme_id: string;
+  source: CallSource;
+  external_id: string;
+  title: string;
+  language: string;
+  status: CallStatus;
+  deadline: string | null;
+  call_url: string | null;
+  topic_keywords: string[];
+  scraped_at: string;
+}
+
+export interface CallListResponse {
+  calls: CallSummary[];
+}
+
+export interface CallCreate {
+  programme_id: string;
+  external_id: string;
+  title: string;
+  language: 'tr' | 'en';
+  source?: CallSource;
+  call_text?: string;
+  call_url?: string;
+  call_pdf_url?: string;
+  deadline?: string;
+  budget_total_eur?: number;
+  budget_per_project_min_eur?: number;
+  budget_per_project_max_eur?: number;
+  trl_min?: number;
+  trl_max?: number;
+  topic_keywords?: string[];
+  raw_metadata?: Record<string, unknown>;
+}
+
+// ── Proposals (CRUD) ────────────────────────────────────────────────────
+
+export type ProposalStatus =
+  | 'draft'
+  | 'brief_complete'
+  | 'generating'
+  | 'draft_complete'
+  | 'in_review'
+  | 'validated'
+  | 'exported'
+  | 'submitted'
+  | 'funded'
+  | 'rejected'
+  | 'archived';
+
+/**
+ * Status values the HTTP caller may set via PATCH. Saga-managed states
+ * (`generating`, `draft_complete`, `validated`) are intentionally
+ * excluded — those flip server-side as the pipeline progresses.
+ */
+export type ProposalStatusPatchable =
+  | 'draft'
+  | 'brief_complete'
+  | 'in_review'
+  | 'archived';
+
+export interface ProposalSummary {
+  id: string;
+  programme_id: string;
+  language: string;
+  title: string | null;
+  acronym: string | null;
+  status: ProposalStatus;
+  call_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+  word_count: number;
+  llm_cost_usd: number;
+}
+
+export interface ProposalListResponse {
+  proposals: ProposalSummary[];
+}
+
+export interface ProposalDetail {
+  id: string;
+  tenant_id: string;
+  programme_id: string;
+  language: string;
+  title: string | null;
+  acronym: string | null;
+  status: ProposalStatus;
+  call_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+  brief: Record<string, unknown>;
+  draft: Record<string, unknown>;
+  compliance_report: Record<string, unknown>;
+  distinctiveness_score: number | null;
+  ai_disclosure_text: string | null;
+  word_count: number;
+  page_count: number;
+  llm_cost_usd: number;
+}
+
+export interface ProposalCreate {
+  programme_id: string;
+  language: 'tr' | 'en';
+  title?: string;
+  acronym?: string;
+  call_id?: string;
+  brief?: Record<string, unknown>;
+}
+
+export interface ProposalUpdate {
+  title?: string | null;
+  acronym?: string | null;
+  call_id?: string | null;
+  brief?: Record<string, unknown>;
+  draft?: Record<string, unknown>;
+  status?: ProposalStatusPatchable;
+}
+
+/**
+ * Body of POST /proposals/{id}/generate response. The job_id maps to
+ * a Celery task; the FE polls `/api/v1/jobs/{job_id}` or subscribes
+ * to the SSE stream URL for progress.
+ */
+export interface GenerateEnqueued {
+  job_id: string;
+  proposal_id: string;
+  estimated_duration_seconds: number;
+  status_url: string;
+  stream_url: string;
+}
+
+/**
+ * Body of POST /proposals/{id}/export response.
+ */
+export interface ExportEnqueued {
+  job_id: string;
+  status: string;
+  proposal_id: string;
+  format: 'docx' | 'xlsx';
+}
