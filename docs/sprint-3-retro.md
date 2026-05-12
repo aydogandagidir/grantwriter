@@ -23,7 +23,7 @@ This retro covers what shipped, what slipped, what got rerouted, and the punch l
 | Plan limit DB trigger + quota | ✅ Shipped | Monthly proposal counter, 402 gate at Starter cap |
 | Usage report endpoint + UI | ✅ Shipped | Admin-only with KPI cards + by-period table |
 | DNSH agent rule + LLM hybrid | ✅ Shipped | 3 deterministic codes stack with LLM `dnsh_inadequate`; HE-only gating |
-| Hallucination Hunter claim verification | ✅ Shipped | Sample-10 LLM verdicts, `<0.6` pass rate blocks export, cost-capped at ~$0.01/draft |
+| Hallucination Hunter claim verification | ✅ Shipped (agent) → **S3.D13.T1 closed in follow-up PR** | Sample-10 LLM verdicts + `<0.6` pass rate blocks export + `validate_proposal` endpoint now runs Hunter alongside Compliance + FE `ValidationPanel` disables export button when blocked + real Crossref `@pytest.mark.integration` smoke. Cost-capped at ~$0.01/draft. |
 | Versioning (proposal_versions) | ✅ Shipped | Snapshot-as-new-current restore, history never loses entries |
 | Comments DB + endpoint | ✅ Shipped | Single-level threading, author/admin guards, app-level cascade |
 | Comments UI (add, resolve, thread) | ✅ Shipped | CommentsPanel in stub proposal editor |
@@ -87,11 +87,12 @@ Reword for what we actually shipped:
 | D4–D9 | 8 tenant routes + Iyzico webhook + quota + CI scaffolding (1 commit) |
 | D11 | Resend email service + Iyzico outbound checkout (2 commits) |
 | D12 | Versioning + Comments APIs (2 commits) |
-| D13 | Hallucination Hunter LLM verifier (1 commit) |
+| D13 | Hallucination Hunter LLM verifier (1 commit) — agent only; gate+FE+integration shipped post-closure as "S3.D13.T1 complete pass" follow-up PR |
 | D14 | DNSH rule layer (1 commit) |
 | D15 | Multi-tenant E2E test + fixups (2 commits) |
 | FE F1–F13 | Tailwind + shadcn + Supabase + i18n + 8 pages + tests (5 commits) |
 | Closure | CI ruff fix + flaky marker + a11y + mobile + docs (3 commits, 3 PRs) |
+| **S3.D13.T1 carry-over** | `validate_proposal` runs Hunter + `ValidationReport` response + FE `ValidationPanel` (badge + export-button gate) + `tests/citations/test_verifier_integration.py` with `@pytest.mark.integration` + 2 extra agent tests (paraphrased verdict + malformed JSON). Closes the "complete pass" prompt that the Sprint 3 D13 task definition demanded. |
 
 ---
 

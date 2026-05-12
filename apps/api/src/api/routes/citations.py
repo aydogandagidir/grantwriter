@@ -72,7 +72,7 @@ async def verify_citation(
     calls because Crossref/OpenAlex are cheap and cached.
     """
 
-    cache = await _build_cache(settings)
+    cache = await build_citation_cache(settings)
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         verifier = CitationVerifier(client=client, cache=cache)
@@ -90,8 +90,13 @@ async def verify_citation(
     return VerifyResponse(citation_id=citation_id, result=result)
 
 
-async def _build_cache(settings: Settings) -> CitationCache:
-    """Wire Redis when ``REDIS_URL`` is set; fall back to in-memory."""
+async def build_citation_cache(settings: Settings) -> CitationCache:
+    """Wire Redis when ``REDIS_URL`` is set; fall back to in-memory.
+
+    Public helper — reused by ``apps/api/src/api/routes/proposals.py``'s
+    ``validate_proposal`` endpoint when it runs HallucinationHunter
+    alongside ComplianceReviewer (S3.D13.T1 completion).
+    """
 
     if settings.redis_url is None:
         logger.debug("citation_cache_using_in_memory_backend")
@@ -105,4 +110,4 @@ async def _build_cache(settings: Settings) -> CitationCache:
     return CitationCache(backend=RedisCacheBackend(client))
 
 
-__all__ = ["VerifyResponse", "router"]
+__all__ = ["VerifyResponse", "build_citation_cache", "router"]

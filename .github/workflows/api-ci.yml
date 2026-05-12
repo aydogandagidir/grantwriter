@@ -131,11 +131,18 @@ jobs:
       # unset. We deselect it here, then re-run that single test with
       # REDIS_URL cleared.
       #
+      # `-m "not integration"` filters out the live-Crossref/OpenAlex
+      # suite in tests/citations/test_verifier_integration.py — those
+      # touch the public internet and live behind their own opt-in (see
+      # tests/citations/test_verifier_integration.py docstring + the
+      # marker declared in pyproject.toml).
+      #
       # (The `flaky_pre_s3` marker that briefly opted CI out of TICKET-001
       # + TICKET-002 was removed once both tickets landed root-cause fixes.)
       - name: pytest (Redis-on path)
         run: |
           poetry run pytest -v \
+            -m "not integration" \
             --deselect tests/api/test_generate_endpoint.py::test_stream_returns_503_when_redis_not_configured
 
       - name: pytest (Redis-unset stream guard)

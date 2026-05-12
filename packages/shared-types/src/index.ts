@@ -170,3 +170,56 @@ export interface CommentRecord {
 export interface CommentListResponse {
   comments: CommentRecord[];
 }
+
+// ── Validation (compliance + hallucination hunter) ──────────────────────
+
+export type ValidationSeverity = 'blocker' | 'warning' | 'info';
+export type HuntRecommendation = 'block_export' | 'ok';
+
+export interface ValidationIssue {
+  severity: ValidationSeverity;
+  section: string | null;
+  code: string;
+  message_tr: string;
+  message_en: string;
+  suggestion: string | null;
+}
+
+export interface ComplianceReport {
+  passed: boolean;
+  issues: ValidationIssue[];
+  ai_disclosure_text: string | null;
+  compliance_score: number;
+}
+
+export interface FlaggedCitation {
+  raw_text: string;
+  section: string;
+  status: string;
+  source: string | null;
+  match_score: number | null;
+  warning: string | null;
+}
+
+export interface HuntReport {
+  total_citations: number;
+  verified: number;
+  partial_match: number;
+  fabricated: number;
+  not_found: number;
+  errors: number;
+  verification_rate: number;
+  flagged_citations: FlaggedCitation[];
+  recommendation: HuntRecommendation;
+  claim_check_pass_rate: number | null;
+}
+
+/**
+ * Combined response of `POST /api/v1/proposals/{id}/validate`.
+ * S3.D13.T1 — the hallucination hunter's recommendation = "block_export"
+ * (or any compliance blocker) disables the export button on the FE.
+ */
+export interface ValidationReport {
+  compliance: ComplianceReport;
+  hallucination_hunter: HuntReport | null;
+}

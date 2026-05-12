@@ -22,6 +22,7 @@ import type {
   MeResponse,
   MemberListResponse,
   UsageReport,
+  ValidationReport,
   VersionListResponse,
 } from '@bluedev/shared-types';
 
@@ -42,6 +43,7 @@ export const queryKeys = {
   versions: (proposalId: string) => ['versions', proposalId] as const,
   comments: (proposalId: string, opts?: { includeResolved?: boolean }) =>
     ['comments', proposalId, opts ?? {}] as const,
+  validation: (proposalId: string) => ['validation', proposalId] as const,
 };
 
 // ── /me ─────────────────────────────────────────────────────────────────
@@ -305,4 +307,37 @@ export function useDeleteComment() {
       apiClient(`/api/v1/comments/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['comments'] }),
   });
+}
+
+// ── Validation (compliance + hallucination hunter) ──────────────────────
+
+/**
+ * Run `POST /proposals/{id}/validate` and cache the resulting
+ * `ValidationReport`. The hook is mutation-shaped (vs. useQuery) because
+ * the underlying endpoint is rate-limited (10 / 60s) and the FE only
+ * fires it from an explicit "Re-validate" button click — not on render.
+ *
+ * On success the cache is primed for `queryKeys.validation(proposalId)`
+ * so any component (badge, export button, issues panel) reads the same
+ * shape without re-firing the request.
+ */
+export function useValidateProposal(proposalId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiClient<ValidationReport>(`/api/v1/proposals/${proposalId}/validate`, {
+        method: 'POST',
+      }),
+    onSuccess: (data) =>
+      qc.setQueryData(queryKeys.validation(proposalId), data),
+  });
+}
+
+/**
+ * Read the cached validation report without firing a request. Returns
+ * `undefined` until `useValidateProposal` has run at least once.
+ */
+export function useCachedValidation(proposalId: string) {
+  const qc = useQueryClient();
+  return qc.getQueryData<ValidationReport>(queryKeys.validation(proposalId));
 }

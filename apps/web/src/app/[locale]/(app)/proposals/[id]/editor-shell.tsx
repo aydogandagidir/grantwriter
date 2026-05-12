@@ -1,17 +1,22 @@
 'use client';
 
-import { History, MessageSquare } from 'lucide-react';
+import { History, MessageSquare, ShieldCheck } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { CommentsPanel } from '@/components/proposal/comments-panel';
+import { ValidationPanel } from '@/components/proposal/validation-panel';
 import { VersionsPanel } from '@/components/proposal/versions-panel';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 /**
- * Stub proposal editor used to host the Versions + Comments panels until
- * the real TipTap editor lands. Renders a placeholder card on the left
- * and the collaboration panels in a tabbed right rail.
+ * Stub proposal editor used to host the Versions + Comments + Validation
+ * panels until the real TipTap editor lands. Renders a placeholder card
+ * on the left and the collaboration panels in a tabbed right rail.
+ *
+ * S3.D13.T1 added the "Validation" tab — it surfaces the Hallucination
+ * Hunter recommendation + Compliance Reviewer issues + a unified export
+ * button that disables when either gate trips.
  */
 export function ProposalEditorShell({
   proposalId,
@@ -23,6 +28,7 @@ export function ProposalEditorShell({
   const tNav = useTranslations('nav');
   const tVersions = useTranslations('versions');
   const tComments = useTranslations('comments');
+  const tValidation = useTranslations('validation');
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -35,15 +41,19 @@ export function ProposalEditorShell({
           <CardContent>
             <p className="text-sm text-muted-foreground">
               The TipTap editor lands in a follow-up sprint. The Sprint 3 backend
-              collaboration features (versions + comments) are wired up on the
-              right.
+              collaboration features (versions + comments + validation) are wired
+              up on the right.
             </p>
           </CardContent>
         </Card>
       </div>
       <div className="lg:col-span-1">
-        <Tabs defaultValue="versions">
+        <Tabs defaultValue="validation">
           <TabsList className="w-full">
+            <TabsTrigger value="validation" className="flex-1 gap-2">
+              <ShieldCheck className="h-4 w-4" />
+              {tValidation('title')}
+            </TabsTrigger>
             <TabsTrigger value="versions" className="flex-1 gap-2">
               <History className="h-4 w-4" />
               {tVersions('title')}
@@ -53,6 +63,9 @@ export function ProposalEditorShell({
               {tComments('title')}
             </TabsTrigger>
           </TabsList>
+          <TabsContent value="validation">
+            <ValidationPanel proposalId={proposalId} />
+          </TabsContent>
           <TabsContent value="versions">
             <VersionsPanel proposalId={proposalId} />
           </TabsContent>

@@ -196,6 +196,35 @@
     "saveEdit": "Güncelle",
     "empty": "Henüz yorum yok."
   },
+  "validation": {
+    "title": "Uygunluk & atıflar",
+    "subtitle": "Mevcut taslağı yeniden değerlendir.",
+    "revalidate": "Yeniden doğrula",
+    "revalidating": "Doğrulanıyor…",
+    "never": "Henüz doğrulanmadı.",
+    "passed": "Dışa aktarmaya hazır",
+    "failed": "Dışa aktarım engellendi",
+    "issues": "Sorunlar ({count})",
+    "noIssues": "Uyumsuzluk yok.",
+    "severityBlocker": "Engelleyici",
+    "severityWarning": "Uyarı",
+    "severityInfo": "Bilgi",
+    "hunt": {
+      "title": "Atıf doğrulama",
+      "ok": "Tüm atıflar doğrulandı.",
+      "blocked": "Uydurma veya doğrulanamayan atıflar var.",
+      "stats": "{verified} / {total} doğrulandı · {fabricated} uydurma · {notFound} bulunamadı",
+      "claimRate": "Çağrı destek oranı: %{pct}",
+      "claimRateUnknown": "Çağrı destek oranı ölçülmedi.",
+      "flaggedList": "İşaretli atıflar",
+      "flaggedItem": "{section}: {raw} ({status})"
+    },
+    "export": {
+      "ready": "DOCX olarak dışa aktar",
+      "blocked": "Dışa aktarım engellendi — önce işaretli atıfları düzelt",
+      "blockedReason": "Hallucination Hunter bu taslağı işaretledi. Yukarıdaki sorunları çözmeden ihracat alınamaz."
+    }
+  },
   "errors": {
     "generic": "Bir şeyler ters gitti.",
     "unauthorized": "Bu işlem için yetkin yok.",
