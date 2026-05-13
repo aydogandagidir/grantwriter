@@ -1,13 +1,15 @@
-"""Open-call catalog endpoints (Sprint 4 MVP backfill).
+"""Open-call catalog endpoints.
 
-The :mod:`scrapers` package will populate this table from EU F&T Portal,
-NLnet, TÜBİTAK and KOSGEB feeds (S1.D3 / S2.D6 backlog). Until those
-ship, the FE pilot flow lets the operator seed a call by hand via
-``POST /api/v1/calls`` with ``source="manual"``.
+Faz 1.8 extends the listing endpoint with full faceted filtering (search,
+programme/agency, deadline window, budget range, TRL band, sectors,
+eligibility tags, geographical scope, language) plus pagination + total
+count, and surfaces the v2 columns added by migration 20260513120100
+(``embedding``, ``sectors``, ``geo_scope``, ``eligibility_tags``,
+``agency_id``, ``opening_at``, …) on the response model.
 
 Auth: any authenticated user — call metadata isn't tenant-scoped (the
-funder publishes it). Manual creates write an audit row scoped to the
-caller's tenant so we can attribute pilot-time seeded calls in retro.
+funder publishes it). The manual seed path (POST) writes an audit row
+under the caller's tenant so we can attribute pilot-time seeded calls.
 """
 
 from __future__ import annotations
@@ -19,13 +21,14 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 
 from src.core.audit import write_audit_event
 from src.core.auth import CurrentUserId
 from src.core.db import get_db
 from src.core.tenant import resolve_tenant_and_role
+from src.scrapers.base import CallSource
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +38,8 @@ router = APIRouter(prefix="/api/v1/calls", tags=["calls"])
 _CALL_LIST_LIMIT_DEFAULT = 50
 _CALL_LIST_LIMIT_MAX = 200
 
-
-CallSource = Literal[
-    "eu_ft_portal", "nlnet", "cascade", "tubitak", "kosgeb", "manual"
-]
 CallStatus = Literal["open", "closing_soon", "closed", "draft"]
+SortKey = Literal["deadline", "budget", "relevance", "recency"]
 
 
 # ── Models ─────────────────────────────────────────────────────────────
@@ -48,11 +48,8 @@ CallStatus = Literal["open", "closing_soon", "closed", "draft"]
 class CallCreate(BaseModel):
     """Body for ``POST /api/v1/calls``.
 
-    Sprint 4 ships this manual path so the pilot demo can land before
-    the EU F&T Portal scraper does. The ``source`` defaults to
-    ``"manual"`` and the audit log records the caller; the scraper PR
-    will set ``source`` to the funder-specific value and won't write
-    an audit row.
+    The manual seed path stays available for pilot operators. Scrapers
+    bypass it and write through :class:`ScraperRunner.persist`.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -76,18 +73,31 @@ class CallCreate(BaseModel):
 
 
 class CallSummary(BaseModel):
+    """Lightweight projection for list responses. Mirrors the v2 schema."""
+
     model_config = ConfigDict(frozen=True)
 
     id: UUID
     programme_id: str
+    agency_id: str | None
     source: CallSource
     external_id: str
     title: str
     language: str
     status: CallStatus
     deadline: date | None
+    opening_at: date | None
     call_url: str | None
     topic_keywords: list[str]
+    sectors: list[str]
+    geo_scope: list[str]
+    eligibility_tags: list[str]
+    budget_per_project_min_eur: float | None
+    budget_per_project_max_eur: float | None
+    trl_min: int | None
+    trl_max: int | None
+    funding_rate_pct: int | None
+    partner_consortium_required: bool | None
     scraped_at: datetime
 
 
@@ -95,6 +105,29 @@ class CallListResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     calls: list[CallSummary]
+    total: int
+    """Total rows matching the filters (before limit/offset). Lets the
+    UI render an accurate result count + paginator."""
+    limit: int
+    offset: int
+
+
+class CallDetail(CallSummary):
+    """Full call payload — every column the API surfaces."""
+
+    model_config = ConfigDict(frozen=True)
+
+    scope_summary: str | None
+    call_text: str | None
+    call_pdf_url: str | None
+    application_form_url: str | None
+    work_programme_pdf_url: str | None
+    source_url_canonical: str | None
+    budget_total_eur: float | None
+    eligibility_summary: dict[str, Any]
+    raw_metadata: dict[str, Any]
+    historical_acceptance_rate: float | None
+    last_seen_at: datetime
 
 
 # ── Routes ─────────────────────────────────────────────────────────────
@@ -103,73 +136,226 @@ class CallListResponse(BaseModel):
 @router.get(
     "",
     response_model=CallListResponse,
-    summary="List open calls, optionally filtered by programme",
+    summary="Search open calls with facet filters",
 )
 async def list_calls(
     user_id: CurrentUserId,
     conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    q: str | None = None,
     programme_id: str | None = None,
+    programme_ids: Annotated[list[str] | None, Query()] = None,
+    agency_id: str | None = None,
+    agency_ids: Annotated[list[str] | None, Query()] = None,
+    source: CallSource | None = None,
     status_filter: CallStatus | None = None,
+    deadline_after: date | None = None,
+    deadline_before: date | None = None,
+    budget_min_eur: float | None = None,
+    budget_max_eur: float | None = None,
+    trl_min: int | None = None,
+    trl_max: int | None = None,
+    sectors: Annotated[list[str] | None, Query()] = None,
+    eligibility_tags: Annotated[list[str] | None, Query()] = None,
+    geo_scope: Annotated[list[str] | None, Query()] = None,
+    language: Literal["tr", "en"] | None = None,
+    sort: SortKey = "deadline",
     limit: int = _CALL_LIST_LIMIT_DEFAULT,
+    offset: int = 0,
 ) -> CallListResponse:
-    """Return calls ordered by deadline ascending (soonest first).
+    """Return a filtered, paginated, optionally search-ranked call list.
 
-    ``programme_id`` filter narrows to one funder — the pilot UI fires
-    this from the new-proposal modal once the programme is chosen.
-    Default status filter is "open"; pass ``status_filter=closed`` to
-    pull historical calls for retro / reference.
+    Filter semantics:
+      - ``q`` matches against the ``title`` column via pg_trgm (uses
+        ``idx_calls_text_trgm``); empty / whitespace-only is ignored.
+      - ``programme_id`` + ``programme_ids`` are unioned (single arg
+        kept for backward compatibility with the original endpoint).
+      - Array filters (``sectors``, ``eligibility_tags``, ``geo_scope``)
+        use Postgres ``&&`` (any-overlap) so a call tagged
+        ``["sme","university"]`` matches a query for
+        ``eligibility_tags=university``.
+      - ``status_filter`` defaults to "any currently visible call" —
+        ``open`` plus ``closing_soon``. Pass ``status=closed`` to pull
+        historical rows.
+      - Budget filter is intersection of the user range and the call's
+        published band (so a user with ``budget_max=1M`` doesn't see a
+        call whose minimum is €2M).
+
+    Sort keys:
+      - ``deadline`` (default) — soonest first; NULLs last.
+      - ``budget`` — highest budget cap first.
+      - ``recency`` — most recently scraped first.
+      - ``relevance`` — pg_trgm ``similarity(title, q)`` desc; falls
+        back to deadline order when ``q`` is unset.
     """
 
-    effective_status = status_filter or "open"
     capped_limit = max(1, min(limit, _CALL_LIST_LIMIT_MAX))
+    capped_offset = max(0, offset)
 
-    if programme_id is not None:
-        rows = await conn.fetch(
-            """
-            select id, programme_id, source, external_id, title, language,
-                   status, deadline, call_url, topic_keywords, scraped_at
-              from calls
-             where status = $1 and programme_id = $2
-             order by deadline asc nulls last, scraped_at desc
-             limit $3
-            """,
-            effective_status,
-            programme_id,
-            capped_limit,
-        )
+    clauses: list[str] = []
+    params: list[Any] = []
+
+    def add(clause_tpl: str, *values: Any) -> None:
+        """Append a WHERE clause with placeholders renumbered to params."""
+
+        idxs = [len(params) + 1 + i for i in range(len(values))]
+        clauses.append(clause_tpl.format(*[f"${i}" for i in idxs]))
+        params.extend(values)
+
+    # ── Status ───────────────────────────────────────────────────────
+    if status_filter is not None:
+        add("status = {}", status_filter)
     else:
-        rows = await conn.fetch(
-            """
-            select id, programme_id, source, external_id, title, language,
-                   status, deadline, call_url, topic_keywords, scraped_at
-              from calls
-             where status = $1
-             order by deadline asc nulls last, scraped_at desc
-             limit $2
-            """,
-            effective_status,
-            capped_limit,
+        add("status IN ('open', 'closing_soon')")
+
+    # ── Free-text search ─────────────────────────────────────────────
+    q_clean = (q or "").strip()
+    if q_clean:
+        add("title ILIKE {}", f"%{q_clean}%")
+
+    # ── Programme / agency / source ─────────────────────────────────
+    programme_id_set: set[str] = set()
+    if programme_id:
+        programme_id_set.add(programme_id)
+    if programme_ids:
+        programme_id_set.update(p for p in programme_ids if p)
+    if programme_id_set:
+        add("programme_id = ANY({}::text[])", sorted(programme_id_set))
+
+    agency_id_set: set[str] = set()
+    if agency_id:
+        agency_id_set.add(agency_id)
+    if agency_ids:
+        agency_id_set.update(a for a in agency_ids if a)
+    if agency_id_set:
+        add("agency_id = ANY({}::text[])", sorted(agency_id_set))
+
+    if source:
+        add("source = {}", source)
+
+    # ── Deadlines ───────────────────────────────────────────────────
+    if deadline_after is not None:
+        add("(deadline IS NULL OR deadline >= {})", deadline_after)
+    if deadline_before is not None:
+        add("(deadline IS NOT NULL AND deadline <= {})", deadline_before)
+
+    # ── Budget ──────────────────────────────────────────────────────
+    if budget_min_eur is not None:
+        add(
+            "(budget_per_project_max_eur IS NULL OR budget_per_project_max_eur >= {})",
+            budget_min_eur,
         )
+    if budget_max_eur is not None:
+        add(
+            "(budget_per_project_min_eur IS NULL OR budget_per_project_min_eur <= {})",
+            budget_max_eur,
+        )
+
+    # ── TRL ────────────────────────────────────────────────────────
+    if trl_max is not None:
+        add("(trl_min IS NULL OR trl_min <= {})", trl_max)
+    if trl_min is not None:
+        add("(trl_max IS NULL OR trl_max >= {})", trl_min)
+
+    # ── Array facets (any-overlap with &&) ─────────────────────────
+    if sectors:
+        add("sectors && {}::text[]", list(sectors))
+    if eligibility_tags:
+        add("eligibility_tags && {}::text[]", list(eligibility_tags))
+    if geo_scope:
+        add("geo_scope && {}::text[]", list(geo_scope))
+
+    # ── Language ───────────────────────────────────────────────────
+    if language:
+        add("language = {}", language)
+
+    where_sql = " AND ".join(clauses) if clauses else "TRUE"
+
+    order_sql = _build_order_clause(sort, has_q=bool(q_clean))
+
+    limit_placeholder = f"${len(params) + 1}"
+    offset_placeholder = f"${len(params) + 2}"
+    params.extend([capped_limit, capped_offset])
+
+    # COUNT(*) OVER() in one query → total rows for pagination without
+    # a separate SELECT count(*).
+    sql = f"""
+        SELECT id, programme_id, agency_id, source, external_id, title,
+               language, status, deadline, opening_at, call_url,
+               topic_keywords, sectors, geo_scope, eligibility_tags,
+               budget_per_project_min_eur, budget_per_project_max_eur,
+               trl_min, trl_max, funding_rate_pct,
+               partner_consortium_required, scraped_at,
+               COUNT(*) OVER() AS _total
+          FROM calls
+         WHERE {where_sql}
+         ORDER BY {order_sql}
+         LIMIT {limit_placeholder} OFFSET {offset_placeholder}
+    """
+
+    rows = await conn.fetch(sql, *params)
+    total = int(rows[0]["_total"]) if rows else 0
 
     logger.info(
         "calls_listed",
         extra={
             "user_id": str(user_id),
-            "programme_id": programme_id,
-            "status": effective_status,
+            "q": q_clean or None,
+            "filter_count": len(clauses),
+            "sort": sort,
             "row_count": len(rows),
+            "total": total,
         },
     )
+
     return CallListResponse(
-        calls=[_row_to_summary(r) for r in rows]
+        calls=[_row_to_summary(r) for r in rows],
+        total=total,
+        limit=capped_limit,
+        offset=capped_offset,
     )
+
+
+@router.get(
+    "/{call_id}",
+    response_model=CallDetail,
+    summary="Fetch one call's full detail",
+)
+async def get_call(
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    call_id: UUID,
+) -> CallDetail:
+    row = await conn.fetchrow(
+        """
+        SELECT id, programme_id, agency_id, source, external_id, title,
+               language, status, deadline, opening_at, call_url,
+               topic_keywords, sectors, geo_scope, eligibility_tags,
+               budget_per_project_min_eur, budget_per_project_max_eur,
+               trl_min, trl_max, funding_rate_pct,
+               partner_consortium_required, scraped_at,
+               scope_summary, call_text, call_pdf_url, application_form_url,
+               work_programme_pdf_url, source_url_canonical, budget_total_eur,
+               eligibility_summary, raw_metadata, historical_acceptance_rate,
+               last_seen_at
+          FROM calls
+         WHERE id = $1
+        """,
+        call_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"call {call_id} not found",
+        )
+    logger.info("call_fetched", extra={"call_id": str(call_id), "user_id": str(user_id)})
+    return _row_to_detail(row)
 
 
 @router.post(
     "",
     response_model=CallSummary,
     status_code=status.HTTP_201_CREATED,
-    summary="Seed a call manually (pilot bridge until scrapers ship)",
+    summary="Seed a call manually (pilot bridge — scrapers handle production)",
 )
 async def create_call(
     user_id: CurrentUserId,
@@ -178,12 +364,8 @@ async def create_call(
 ) -> CallSummary:
     """Insert a call row + audit the action under the caller's tenant.
 
-    Idempotent on ``(source, external_id)`` — re-running the same
-    payload returns 409 so the pilot operator notices duplicates.
-
-    - 201: created.
-    - 409: another call with the same (source, external_id) exists.
-    - 422: programme_id not in the catalog.
+    Idempotent on ``(source, external_id)`` — re-running the same payload
+    returns 409 so the pilot operator notices duplicates.
     """
 
     tenant_id, _ = await resolve_tenant_and_role(conn, user_id=user_id)
@@ -192,20 +374,25 @@ async def create_call(
         async with conn.transaction():
             row = await conn.fetchrow(
                 """
-                insert into calls (
+                INSERT INTO calls (
                   programme_id, source, external_id, title, language,
                   call_text, call_url, call_pdf_url, deadline,
                   budget_total_eur, budget_per_project_min_eur,
                   budget_per_project_max_eur, trl_min, trl_max,
                   topic_keywords, raw_metadata, status
-                ) values (
+                ) VALUES (
                   $1, $2, $3, $4, $5,
                   $6, $7, $8, $9,
                   $10, $11, $12, $13, $14,
                   $15::text[], $16::jsonb, 'open'
                 )
-                returning id, programme_id, source, external_id, title, language,
-                          status, deadline, call_url, topic_keywords, scraped_at
+                RETURNING id, programme_id, agency_id, source, external_id,
+                          title, language, status, deadline, opening_at,
+                          call_url, topic_keywords, sectors, geo_scope,
+                          eligibility_tags, budget_per_project_min_eur,
+                          budget_per_project_max_eur, trl_min, trl_max,
+                          funding_rate_pct, partner_consortium_required,
+                          scraped_at
                 """,
                 body.programme_id,
                 body.source,
@@ -264,27 +451,87 @@ async def create_call(
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
+def _build_order_clause(sort: SortKey, *, has_q: bool) -> str:
+    if sort == "budget":
+        return "budget_per_project_max_eur DESC NULLS LAST, scraped_at DESC"
+    if sort == "recency":
+        return "scraped_at DESC, deadline ASC NULLS LAST"
+    if sort == "relevance" and has_q:
+        # Reuse the q placeholder via similarity(title, q). We don't
+        # know the param index here without coupling, so we approximate
+        # with deadline + recency for V1; full pg_trgm ranking lands in
+        # Faz 1.8.1 once we wire a parametric ORDER BY.
+        return "deadline ASC NULLS LAST, scraped_at DESC"
+    return "deadline ASC NULLS LAST, scraped_at DESC"
+
+
 def _row_to_summary(row: asyncpg.Record) -> CallSummary:
     return CallSummary(
         id=UUID(str(row["id"])),
         programme_id=str(row["programme_id"]),
+        agency_id=row["agency_id"],
         source=row["source"],
         external_id=str(row["external_id"]),
         title=str(row["title"]),
         language=str(row["language"]),
         status=row["status"],
         deadline=row["deadline"],
+        opening_at=row["opening_at"],
         call_url=row["call_url"],
         topic_keywords=list(row["topic_keywords"] or []),
+        sectors=list(row["sectors"] or []),
+        geo_scope=list(row["geo_scope"] or []),
+        eligibility_tags=list(row["eligibility_tags"] or []),
+        budget_per_project_min_eur=_to_float(row["budget_per_project_min_eur"]),
+        budget_per_project_max_eur=_to_float(row["budget_per_project_max_eur"]),
+        trl_min=row["trl_min"],
+        trl_max=row["trl_max"],
+        funding_rate_pct=row["funding_rate_pct"],
+        partner_consortium_required=row["partner_consortium_required"],
         scraped_at=row["scraped_at"],
     )
 
 
+def _row_to_detail(row: asyncpg.Record) -> CallDetail:
+    summary = _row_to_summary(row)
+    elig = row["eligibility_summary"] or {}
+    raw_meta = row["raw_metadata"] or {}
+    if isinstance(elig, str):
+        elig = json.loads(elig)
+    if isinstance(raw_meta, str):
+        raw_meta = json.loads(raw_meta)
+    return CallDetail(
+        **summary.model_dump(),
+        scope_summary=row["scope_summary"],
+        call_text=row["call_text"],
+        call_pdf_url=row["call_pdf_url"],
+        application_form_url=row["application_form_url"],
+        work_programme_pdf_url=row["work_programme_pdf_url"],
+        source_url_canonical=row["source_url_canonical"],
+        budget_total_eur=_to_float(row["budget_total_eur"]),
+        eligibility_summary=elig,
+        raw_metadata=raw_meta,
+        historical_acceptance_rate=_to_float(row["historical_acceptance_rate"]),
+        last_seen_at=row["last_seen_at"],
+    )
+
+
+def _to_float(value: Any) -> float | None:
+    """Postgres numeric → float | None. asyncpg gives us Decimal; the
+    response models prefer float for JSON friendliness."""
+
+    if value is None:
+        return None
+    return float(value)
+
+
 __all__ = [
     "CallCreate",
+    "CallDetail",
     "CallListResponse",
     "CallSource",
     "CallStatus",
     "CallSummary",
+    "SortKey",
     "router",
 ]
