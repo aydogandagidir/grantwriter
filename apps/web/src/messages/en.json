@@ -324,5 +324,137 @@
     "notFound": "Record not found.",
     "rateLimit": "Too many requests. Slow down.",
     "quotaExceeded": "Plan limit reached. Upgrade in Billing."
+  },
+  "onboarding": {
+    "step1Title": "Create your workspace",
+    "step1Subtitle": "Where your team will manage grant applications.",
+    "step2Title": "Choose your language",
+    "step2Subtitle": "Set your interface and default application language.",
+    "workspaceName": "Workspace name",
+    "workspaceNamePlaceholder": "My Company Ltd.",
+    "workspaceSlug": "URL slug",
+    "slugDescription": "Your address: {domain}",
+    "preferredLanguage": "Preferred language",
+    "languageTrDesc": "Arayüz Türkçe",
+    "languageEnDesc": "Interface in English",
+    "next": "Continue",
+    "back": "Back",
+    "createWorkspace": "Create workspace",
+    "creating": "Creating…",
+    "errorGeneric": "Couldn't create the workspace. Please try again."
+  },
+  "marketing": {
+    "nav": {
+      "features": "Features",
+      "pricing": "Pricing",
+      "login": "Log in",
+      "signup": "Get started free"
+    },
+    "hero": {
+      "badge": "AI-powered grant writing",
+      "title": "Drop a call URL, get a draft proposal",
+      "subtitle": "Prepare your TÜBİTAK, KOSGEB, and Horizon Europe applications in minutes. Sourced, compliance-clean, distinctive.",
+      "cta": "Get started free",
+      "secondaryCta": "See features",
+      "note": "No credit card required · 3 proposals/month free"
+    },
+    "stats": {
+      "programs": { "value": "5+", "label": "Supported programs" },
+      "agents": { "value": "7", "label": "AI agents" },
+      "draftTime": { "value": "<60min", "label": "Draft time" },
+      "languages": { "value": "2", "label": "Languages (TR/EN)" }
+    },
+    "features": {
+      "title": "Why GrantWriter?",
+      "subtitle": "Combine grant expert knowledge with AI to accelerate your applications.",
+      "aiDraft": {
+        "title": "7 Expert AI Agents",
+        "description": "Excellence, Impact, Implementation writers and Compliance Reviewer automatically generate every section of your application."
+      },
+      "citations": {
+        "title": "Citation Verification",
+        "description": "Every reference is verified in real-time via Crossref and OpenAlex. Fabricated citation risk drops to near zero."
+      },
+      "compliance": {
+        "title": "AI Act & GDPR Compliance",
+        "description": "EU AI Act, KVKK, and GDPR compliant. AI disclosure texts are auto-generated."
+      },
+      "bilingual": {
+        "title": "Bilingual (TR/EN)",
+        "description": "Generate Turkish and English proposal drafts from the same brief."
+      },
+      "export": {
+        "title": "DOCX & Excel Export",
+        "description": "Export to TÜBİTAK PRODİS, Horizon Europe Standard Application Form, or Lump Sum Excel templates automatically."
+      },
+      "distinctiveness": {
+        "title": "Distinctiveness Score",
+        "description": "Compare your draft against 12K+ projects in the CORDIS database to calculate an originality score."
+      }
+    },
+    "programs": {
+      "title": "Supported Programs",
+      "subtitle": "5 main grant programs in Phase 1, more coming soon.",
+      "list": {
+        "tubitak1501": "TÜBİTAK 1501 — Industrial R&D",
+        "tubitak1507": "TÜBİTAK 1507 — SME R&D",
+        "kosgeb": "KOSGEB R&D and Innovation",
+        "horizonEU": "Horizon Europe RIA/IA",
+        "cascade": "Cascade Funding",
+        "nlnet": "NLnet (NGI)"
+      }
+    },
+    "cta": {
+      "title": "Prepare your first application now",
+      "subtitle": "3 proposals/month free. No credit card required.",
+      "button": "Sign up free"
+    },
+    "footer": {
+      "rights": "All rights reserved."
+    }
+  },
+  "pricing": {
+    "title": "Pricing",
+    "subtitle": "From SME to enterprise — a plan for every scale.",
+    "perMonth": "month",
+    "contactUs": "Contact us",
+    "popular": "Most popular",
+    "getStarted": "Get started free",
+    "contactSales": "Contact sales",
+    "login": "Log in",
+    "signup": "Get started free",
+    "rights": "All rights reserved.",
+    "home": "Home",
+    "plans": {
+      "starter": {
+        "name": "Starter",
+        "description": "For those getting started with grant writing."
+      },
+      "pro": {
+        "name": "Pro",
+        "description": "For SMEs and consultancies with serious applications."
+      },
+      "enterprise": {
+        "name": "Enterprise",
+        "description": "Custom solution for large organizations and agencies."
+      }
+    },
+    "features": {
+      "proposals3": "3 proposals per month",
+      "proposalsUnlimited": "Unlimited proposals",
+      "programs5": "5 grant programs",
+      "citations": "Citation verification",
+      "docxExport": "DOCX export",
+      "xlsxExport": "Lump Sum Excel",
+      "byok": "BYOK (bring your own key)",
+      "communitySupport": "Community support",
+      "prioritySupport": "Priority support",
+      "teamMembers": "Unlimited team members",
+      "dedicatedSupport": "Dedicated account manager",
+      "sla": "SLA guarantee",
+      "customIntegrations": "Custom integrations",
+      "selfHosted": "Self-hosted option",
+      "allExports": "All export formats"
+    }
   }
 }
