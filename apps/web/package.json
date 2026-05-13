@@ -4,9 +4,9 @@
   "private": true,
   "description": "Bluedev GrantWriter — Next.js 15 frontend",
   "scripts": {
-    "dev": "next dev --port 3000",
+    "dev": "next dev --port 3001",
     "build": "next build",
-    "start": "next start --port 3000",
+    "start": "next start --port 3001",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
