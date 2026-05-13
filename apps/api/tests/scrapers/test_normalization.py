@@ -25,7 +25,6 @@ from src.scrapers.normalization import (
     to_eur,
 )
 
-
 # ── parse_budget_range ───────────────────────────────────────────────────
 
 

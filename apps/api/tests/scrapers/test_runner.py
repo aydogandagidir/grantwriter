@@ -12,14 +12,13 @@ churn — the runner doesn't care what produced the NormalizedCall.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 import asyncpg
 import pytest
 from src.scrapers.base import BaseScraper, NormalizedCall
 from src.scrapers.runner import ScraperRunner
-
 
 # ── Fake scrapers (test-only, not registered globally) ──────────────────
 
@@ -258,7 +257,7 @@ async def test_run_writes_scraper_runs_row_with_summary(
     scraper = _CannedScraper(calls)
     runner = ScraperRunner(pool=live_db_pool)
 
-    before = datetime.now(timezone.utc)
+    before = datetime.now(UTC)
     await runner.run("manual", scraper=scraper, triggered_by="manual")
 
     async with live_db_pool.acquire() as conn:

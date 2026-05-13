@@ -71,8 +71,12 @@ def _summarise(result: ScraperRunResult) -> dict[str, Any]:
     }
 
 
-@celery_app.task(name="src.tasks.scrapers.run_scraper_task", bind=True)
-def run_scraper_task(self: Any, source: str, *, triggered_by: str = "beat") -> dict[str, Any]:
+# Celery's @task has no py.typed marker → ``[untyped-decorator]`` flag
+# is unavoidable under mypy strict; suppress at the decorator line.
+@celery_app.task(name="src.tasks.scrapers.run_scraper_task", bind=True)  # type: ignore[untyped-decorator]
+def run_scraper_task(
+    _self: Any, source: str, *, triggered_by: str = "beat"
+) -> dict[str, Any]:
     """Celery task: run one scraper to completion.
 
     Errors at the orchestration level (e.g. discover() itself raising)

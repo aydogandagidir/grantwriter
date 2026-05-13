@@ -1082,9 +1082,7 @@ async def update_proposal(
                     status.HTTP_404_NOT_FOUND,
                     detail=f"proposal {proposal_id} not found",
                 )
-            audit_diff: dict[str, Any] = {
-                k: "set" for k in updates
-            }
+            audit_diff: dict[str, Any] = dict.fromkeys(updates, "set")
             if "status" in updates:
                 audit_diff["new_status"] = updates["status"]
             await write_audit_event(

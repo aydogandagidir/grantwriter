@@ -67,14 +67,13 @@ from src.scrapers import eu_ft_portal as _eu_ft_portal  # noqa: E402,F401
 from src.scrapers import nlnet as _nlnet  # noqa: E402,F401
 from src.scrapers import tubitak as _tubitak  # noqa: E402,F401
 
-
 __all__ = [
+    "SCRAPER_REGISTRY",
     "BaseScraper",
     "CallLifecycleStatus",
     "CallSource",
     "EligibilityTag",
     "NormalizedCall",
-    "SCRAPER_REGISTRY",
     "ScraperRunResult",
     "get_scraper",
     "register_scraper",

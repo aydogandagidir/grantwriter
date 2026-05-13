@@ -303,6 +303,8 @@ def route_for(task: TaskName) -> RouteEntry:
 
 
 __all__ = [
+    "PRICING",
+    "TASK_ROUTES",
     "LLMError",
     "LLMMessage",
     "LLMProvider",
@@ -312,10 +314,8 @@ __all__ = [
     "LLMUnrecoverableError",
     "LLMUsage",
     "ModelPricing",
-    "PRICING",
     "ProviderName",
     "RouteEntry",
-    "TASK_ROUTES",
     "TaskName",
     "calculate_cost",
     "route_for",

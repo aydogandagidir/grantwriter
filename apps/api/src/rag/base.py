@@ -54,4 +54,4 @@ class Embedder(Protocol):
     async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
 
 
-__all__ = ["Chunk", "EMBEDDING_DIM", "Embedder", "RetrievedChunk"]
+__all__ = ["EMBEDDING_DIM", "Chunk", "Embedder", "RetrievedChunk"]

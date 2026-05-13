@@ -204,7 +204,7 @@ class EUFTPortalScraper(BaseScraper):
 
     # ── Search API: discovery ────────────────────────────────────────
 
-    async def discover(self) -> AsyncIterator[dict[str, Any]]:  # type: ignore[override]
+    async def discover(self) -> AsyncIterator[dict[str, Any]]:
         """Paginate the SEDIA Search API and yield each open Horizon topic.
 
         Yields lightweight dicts with the topic identifier and the raw
@@ -273,7 +273,7 @@ class EUFTPortalScraper(BaseScraper):
 
     # ── Topic Details API: enrichment ────────────────────────────────
 
-    async def fetch_call_detail(  # type: ignore[override]
+    async def fetch_call_detail(
         self,
         external_id: str,
         *,

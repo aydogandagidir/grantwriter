@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Final
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -362,7 +362,7 @@ def compute_lifecycle_status(
 
     if deadline is None:
         return "open"
-    today = today or datetime.now(timezone.utc).date()
+    today = today or datetime.now(UTC).date()
     if deadline < today:
         return "closed"
     if (deadline - today).days <= closing_soon_days:

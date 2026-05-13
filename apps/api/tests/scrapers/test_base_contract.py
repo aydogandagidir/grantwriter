@@ -24,7 +24,6 @@ from src.scrapers import (
     register_scraper,
 )
 
-
 # ── Helpers: fake scraper for the contract tests ─────────────────────────
 
 
@@ -227,7 +226,12 @@ def test_register_scraper_decorator_adds_to_registry(
                 call_url="https://example.com",
             )
 
-    from src.scrapers import SCRAPER_REGISTRY as live_registry  # re-read patched
+    # We monkey-patched ``SCRAPER_REGISTRY`` above; re-import from the
+    # module so we see the patched dict, not the snapshot the
+    # decorator captured. ``SCRAPER_REGISTRY`` is a module-level
+    # constant by ruff's lights so we re-import it under a clearly
+    # local lowercase name with noqa for the renamer rule.
+    from src.scrapers import SCRAPER_REGISTRY as live_registry  # noqa: N811
 
     assert live_registry["manual"] is A
 

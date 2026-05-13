@@ -14,11 +14,10 @@ import pytest
 from src.scrapers import SCRAPER_REGISTRY, get_scraper
 from src.scrapers.base import NormalizedCall
 from src.scrapers.nlnet import (
-    NLnetScraper,
     _ACTIVE_FUNDS,
+    NLnetScraper,
     _compute_next_deadline,
 )
-
 
 # ── Cycle calculation ───────────────────────────────────────────────────
 

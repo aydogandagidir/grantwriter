@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -73,7 +73,7 @@ class ScraperRunner:
                 raise KeyError(f"No scraper registered for source={source!r}")
             scraper = scraper_cls()
 
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         run_id = await self._insert_run_started(
             source=source,
             started_at=started_at,
@@ -99,7 +99,7 @@ class ScraperRunner:
                         persisted += 1
                     else:
                         updated += 1
-                except Exception as exc:  # noqa: BLE001 — runner contains per-call errors
+                except Exception as exc:
                     failed += 1
                     errors.append(
                         {
@@ -120,10 +120,10 @@ class ScraperRunner:
             if callable(close):
                 try:
                     await close()
-                except Exception:  # noqa: BLE001 — best effort cleanup
+                except Exception:
                     logger.exception("scraper_aclose_failed")
 
-        finished_at = datetime.now(timezone.utc)
+        finished_at = datetime.now(UTC)
         result = ScraperRunResult(
             source=source,
             started_at=started_at,

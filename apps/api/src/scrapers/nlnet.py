@@ -22,8 +22,7 @@ from datetime import date
 from typing import Any
 
 from src.scrapers import register_scraper
-from src.scrapers.base import BaseScraper, NormalizedCall
-
+from src.scrapers.base import BaseScraper, EligibilityTag, NormalizedCall
 
 # The three currently-open NLnet funds. Each one funds the same kind of
 # work (open-source internet technology, "clear European dimension") at
@@ -84,7 +83,7 @@ _ACTIVE_FUNDS: tuple[dict[str, Any], ...] = (
 # Eligible-applicant tags are the same across all three funds. Pulled
 # from /commonsfund/guideforapplicants/ — explicitly inclusive of
 # individuals, SMEs, universities, NGOs, and community groups.
-_NLNET_ELIGIBILITY_TAGS: list[str] = [
+_NLNET_ELIGIBILITY_TAGS: list[EligibilityTag] = [
     "individual",
     "sme",
     "university",
@@ -137,7 +136,7 @@ class NLnetScraper(BaseScraper):
 
         self._today = today
 
-    async def discover(self) -> AsyncIterator[dict[str, Any]]:  # type: ignore[override]
+    async def discover(self) -> AsyncIterator[dict[str, Any]]:
         deadline = _compute_next_deadline(self._today)
         deadline_iso = deadline.isoformat()
         for fund in _ACTIVE_FUNDS:

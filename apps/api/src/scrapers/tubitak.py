@@ -217,7 +217,7 @@ class TUBITAKScraper(BaseScraper):
             await self._client.aclose()
             self._client = None
 
-    async def discover(self) -> AsyncIterator[dict[str, Any]]:  # type: ignore[override]
+    async def discover(self) -> AsyncIterator[dict[str, Any]]:
         """Fetch the public listing once and yield one record per call card."""
 
         client = await self._get_client()
@@ -393,6 +393,6 @@ _DEFAULTS_BY_CODE: Final[dict[str, dict[str, Any]]] = {
 
 
 __all__ = [
-    "TUBITAKScraper",
     "PROGRAM_CODE_TO_PROGRAMME_ID",
+    "TUBITAKScraper",
 ]

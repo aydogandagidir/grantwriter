@@ -39,7 +39,6 @@ from src.scrapers.tubitak import (
     _parse_deadline_from_time_entries,
 )
 
-
 # ── Inline HTML fixtures (trimmed but byte-faithful to the real funder) ──
 
 

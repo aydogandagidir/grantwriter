@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -134,7 +134,7 @@ class NormalizedCall(BaseModel):
     """Verbatim HTML snippet captured at scrape time. Useful when the
     upstream page changes shape and we need to back-fill old records."""
     scraped_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
     """When this NormalizedCall was constructed. ``runner.persist()``
     writes it to ``calls.last_seen_at`` too."""

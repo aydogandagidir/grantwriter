@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 from src.scrapers.dedup import normalize_title, trigram_similarity
 
-
 # ── normalize_title ──────────────────────────────────────────────────────
 
 

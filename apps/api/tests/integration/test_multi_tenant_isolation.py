@@ -234,7 +234,7 @@ async def _cleanup(pool: asyncpg.Pool, *, tenant_ids: list[uuid.UUID]) -> None:
 # ── The test ───────────────────────────────────────────────────────────
 
 
-async def test_full_multi_tenant_isolation_round_trip(  # noqa: PLR0915
+async def test_full_multi_tenant_isolation_round_trip(
     pool: asyncpg.Pool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

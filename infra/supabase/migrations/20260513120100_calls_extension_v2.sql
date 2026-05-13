@@ -91,6 +91,11 @@ create index if not exists idx_scraper_runs_started on scraper_runs(started_at d
 
 alter table scraper_runs enable row level security;
 
+-- DROP-then-CREATE makes the policy block idempotent. Without this,
+-- re-running migrations (the integration test fixture replays every
+-- *.sql per pool) raises duplicate-object on the second pass and
+-- aborts the fixture before any test gets to run.
+drop policy if exists scraper_runs_admin_select on scraper_runs;
 create policy scraper_runs_admin_select
   on scraper_runs
   for select
@@ -98,6 +103,7 @@ create policy scraper_runs_admin_select
     coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'is_platform_admin', 'false')::boolean
   );
 
+drop policy if exists scraper_runs_admin_insert on scraper_runs;
 create policy scraper_runs_admin_insert
   on scraper_runs
   for insert
@@ -105,6 +111,7 @@ create policy scraper_runs_admin_insert
     coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'is_platform_admin', 'false')::boolean
   );
 
+drop policy if exists scraper_runs_admin_update on scraper_runs;
 create policy scraper_runs_admin_update
   on scraper_runs
   for update

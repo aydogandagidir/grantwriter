@@ -241,4 +241,4 @@ def _parse_ranked_ids(text: str) -> list[str]:
     return [s for s in items if s]
 
 
-__all__ = ["CorpusRetriever", "DEFAULT_CANDIDATE_POOL", "DEFAULT_TOP_K"]
+__all__ = ["DEFAULT_CANDIDATE_POOL", "DEFAULT_TOP_K", "CorpusRetriever"]

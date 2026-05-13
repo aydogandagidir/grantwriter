@@ -17,8 +17,6 @@ from src.scrapers import SCRAPER_REGISTRY, get_scraper
 from src.scrapers.base import NormalizedCall
 from src.scrapers.eu_ft_portal import (
     EUFTPortalScraper,
-    SEARCH_API_URL,
-    TOPIC_DETAILS_URL_TEMPLATE,
     _earliest_deadline,
     _extract_type_of_action,
     _first,
@@ -27,7 +25,6 @@ from src.scrapers.eu_ft_portal import (
     _strip_html,
     _work_programme_url,
 )
-
 
 # ── Sample API responses ─────────────────────────────────────────────────
 
