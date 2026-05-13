@@ -32,7 +32,7 @@ export function AuditTable() {
       <Card>
         <CardHeader>
           <CardTitle className="text-xl">{t('title')}</CardTitle>
-          <CardDescription>{data?.events.length ?? 0}</CardDescription>
+          <CardDescription>{data?.events?.length ?? 0}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -41,7 +41,7 @@ export function AuditTable() {
                 <Skeleton key={idx} className="h-10 w-full" />
               ))}
             </div>
-          ) : data && data.events.length === 0 ? (
+          ) : data && (data.events?.length ?? 0) === 0 ? (
             <p className="text-sm text-muted-foreground">{t('empty')}</p>
           ) : (
             <Table>
@@ -54,7 +54,7 @@ export function AuditTable() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.events.map((event) => (
+                {data?.events?.map((event) => (
                   <TableRow key={event.id}>
                     <TableCell>
                       <Badge variant="outline" className="font-mono text-xs">

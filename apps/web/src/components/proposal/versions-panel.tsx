@@ -90,11 +90,11 @@ export function VersionsPanel({ proposalId }: { proposalId: string }) {
             <Skeleton className="h-12 w-full" />
             <Skeleton className="h-12 w-full" />
           </div>
-        ) : data && data.versions.length === 0 ? (
+        ) : data && (data.versions?.length ?? 0) === 0 ? (
           <p className="text-sm text-muted-foreground">{t('empty')}</p>
         ) : (
           <ul className="space-y-2">
-            {data?.versions.map((version) => (
+            {data?.versions?.map((version) => (
               <li
                 key={version.id}
                 className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm"

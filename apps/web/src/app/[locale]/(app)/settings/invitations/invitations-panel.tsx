@@ -160,7 +160,7 @@ export function InvitationsPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="text-xl">{t('list')}</CardTitle>
-          <CardDescription>{data?.invitations.length ?? 0}</CardDescription>
+          <CardDescription>{data?.invitations?.length ?? 0}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -168,7 +168,7 @@ export function InvitationsPanel() {
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
-          ) : data && data.invitations.length === 0 ? (
+          ) : data && (data.invitations?.length ?? 0) === 0 ? (
             <p className="text-sm text-muted-foreground">{t('empty')}</p>
           ) : (
             <Table>
@@ -181,7 +181,7 @@ export function InvitationsPanel() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.invitations.map((inv) => (
+                {data?.invitations?.map((inv) => (
                   <TableRow key={inv.id}>
                     <TableCell className="font-medium">{inv.email}</TableCell>
                     <TableCell>{tMembers(`roles.${inv.role}`)}</TableCell>

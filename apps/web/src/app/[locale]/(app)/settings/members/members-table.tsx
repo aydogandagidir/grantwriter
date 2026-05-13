@@ -80,7 +80,7 @@ export function MembersTable() {
       <Card>
         <CardHeader>
           <CardTitle className="text-xl">{t('title')}</CardTitle>
-          <CardDescription>{data?.members.length ?? 0}</CardDescription>
+          <CardDescription>{data?.members?.length ?? 0}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (

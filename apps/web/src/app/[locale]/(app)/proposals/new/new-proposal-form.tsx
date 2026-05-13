@@ -84,7 +84,7 @@ export function NewProposalForm({ locale }: { locale: string }) {
                 <SelectValue placeholder={t('programmePlaceholder')} />
               </SelectTrigger>
               <SelectContent>
-                {programmes.data?.programmes.map((p) => (
+                {programmes.data?.programmes?.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {locale === 'tr' ? p.name_tr : p.name_en}
                   </SelectItem>

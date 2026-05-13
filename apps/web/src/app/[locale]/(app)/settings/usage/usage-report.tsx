@@ -19,6 +19,12 @@ export function UsageReport() {
   const format = useFormatter();
   const { data, isLoading } = useUsage();
 
+  // Default to an empty array so the empty-state and table branches
+  // below don't have to guard ``by_period`` separately. The API contract
+  // says ``by_period`` is always present, but a partial / cached
+  // response (e.g. during a fresh load) can briefly arrive without it.
+  const periods = data?.by_period ?? [];
+
   return (
     <div className="space-y-6">
       <div>
@@ -48,7 +54,7 @@ export function UsageReport() {
       <Card>
         <CardHeader>
           <CardTitle className="text-xl">{t('byPeriod')}</CardTitle>
-          <CardDescription>{data?.by_period.length ?? 0}</CardDescription>
+          <CardDescription>{periods.length}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -57,7 +63,7 @@ export function UsageReport() {
                 <Skeleton key={idx} className="h-10 w-full" />
               ))}
             </div>
-          ) : data && data.by_period.length === 0 ? (
+          ) : periods.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('empty')}</p>
           ) : (
             <Table>
@@ -71,7 +77,7 @@ export function UsageReport() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.by_period.map((row) => (
+                {periods.map((row) => (
                   <TableRow key={row.period_start}>
                     <TableCell>{format.dateTime(new Date(row.period_start), 'short')}</TableCell>
                     <TableCell className="text-right">${row.total_cost_usd.toFixed(2)}</TableCell>
