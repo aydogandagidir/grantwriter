@@ -1,11 +1,18 @@
-"""Tests for the KVKK / GDPR self-service endpoints.
+"""Tests for the identity + KVKK / GDPR self-service endpoints.
 
-Covers ``GET /api/v1/me/data-export`` and ``DELETE /api/v1/me/account``:
+Covers ``GET /api/v1/me`` (identity snapshot consumed by the FE app
+shell), ``GET /api/v1/me/data-export``, and ``DELETE /api/v1/me/account``:
 
+- /me 200s with user + tenant + role for an active user; the shape
+  mirrors ``packages/shared-types/src/index.ts::MeResponse`` so the FE
+  layout can deserialize it without an adapter.
+- /me 404s a user with no ``public.users`` row (fresh signup before
+  onboarding) — the FE layout treats this as "redirect to onboarding".
+- /me 404s a soft-deleted user.
 - Export returns user + tenant + audit + usage + proposal IDs
   (proposal *content* is intentionally excluded).
 - Export ignores rows authored by other users (cross-user isolation).
-- Export 404s a soft-deleted user (consistent with auth.tenant_id).
+- Export 404s a soft-deleted user (consistent with public.tenant_id).
 - Delete soft-sets ``deleted_at``, writes a single audit row, returns 204.
 - Delete is idempotent — second call still 204, no extra audit row.
 - Delete returns 409 when the caller is the tenant's only owner; the
@@ -160,6 +167,92 @@ def _build_client(
     app.dependency_overrides[get_db] = _fake_db
     transport = ASGITransport(app=app)
     return app, AsyncClient(transport=transport, base_url="http://test")
+
+
+# ── GET /me (identity snapshot) ────────────────────────────────────────
+
+
+async def test_get_me_returns_user_tenant_role_for_active_user(
+    pool: asyncpg.Pool,
+) -> None:
+    """Happy path: the FE app shell relies on this response shape to render
+    the dashboard. Every field on ``MeResponse`` must be populated."""
+
+    tenant_id, user_id = await _make_user(pool, role="owner")
+
+    try:
+        _app, client = _build_client(pool=pool, user_id=user_id)
+        async with client:
+            response = await client.get("/api/v1/me")
+
+        assert response.status_code == 200
+        body = response.json()
+
+        assert body["user_id"] == str(user_id)
+        assert body["email"] == f"u-{user_id}@test"
+        assert body["role"] == "owner"
+        assert body["tenant_id"] == str(tenant_id)
+        assert body["tenant_name"] == "Me Endpoint Test"
+        assert body["tenant_slug"].startswith("me-")
+        # ``plan`` defaults to 'starter' on tenant insert (migration default).
+        assert body["plan"] == "starter"
+        # ``display_name`` is the auto-generated "User <hex>" string from
+        # _make_user — present but the exact value is not contractual.
+        assert body["display_name"] is not None
+    finally:
+        await _cleanup(pool, tenant_id, [user_id])
+
+
+async def test_get_me_404s_when_user_has_no_public_users_row(
+    pool: asyncpg.Pool,
+) -> None:
+    """Right after Supabase signup but before onboarding the auth.users
+    row exists with no matching public.users — the FE layout uses this
+    404 to redirect to the onboarding wizard."""
+
+    # Make an auth.users row WITHOUT a public.users row.
+    user_id = uuid.uuid4()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "insert into auth.users (id, email) values ($1, $2)",
+            user_id,
+            f"u-{user_id}@test",
+        )
+
+    try:
+        _app, client = _build_client(pool=pool, user_id=user_id)
+        async with client:
+            response = await client.get("/api/v1/me")
+        assert response.status_code == 404
+    finally:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "delete from auth.users where id = $1", user_id
+            )
+
+
+async def test_get_me_404s_a_soft_deleted_user(pool: asyncpg.Pool) -> None:
+    """Soft-deletion (``deleted_at IS NOT NULL``) treats the user as
+    nonexistent everywhere, including /me."""
+
+    tenant_id, user_id = await _make_user(pool, role="owner")
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "update public.users set deleted_at = now() where id = $1",
+            user_id,
+        )
+    try:
+        _app, client = _build_client(pool=pool, user_id=user_id)
+        async with client:
+            response = await client.get("/api/v1/me")
+        assert response.status_code == 404
+    finally:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "update public.users set deleted_at = null where id = $1",
+                user_id,
+            )
+        await _cleanup(pool, tenant_id, [user_id])
 
 
 # ── GET /me/data-export ────────────────────────────────────────────────
