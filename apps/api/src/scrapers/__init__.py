@@ -65,6 +65,7 @@ def get_scraper(source: CallSource) -> type[BaseScraper]:
 # pattern). Add new sources here as scrapers land.
 from src.scrapers import eu_ft_portal as _eu_ft_portal  # noqa: E402,F401
 from src.scrapers import nlnet as _nlnet  # noqa: E402,F401
+from src.scrapers import tubitak as _tubitak  # noqa: E402,F401
 
 
 __all__ = [
