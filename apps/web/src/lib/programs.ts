@@ -1,4 +1,4 @@
-import { Atom, Building2, Flag, Sparkles, Wheat } from 'lucide-react';
+import { Atom, Building2, Flag, Sparkles } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 import type { StatusBadgeVariant } from '@/components/ui/status-badge';
@@ -69,13 +69,6 @@ export const PROGRAMS: ProgramCard[] = [
     status: 'beta',
     href: '/proposals?programme=cascade_nlnet',
     tone: 'emerald',
-  },
-  {
-    id: 'eurostars',
-    icon: Wheat,
-    i18nKey: 'eurostars',
-    status: 'soon',
-    tone: 'violet',
   },
 ];
 

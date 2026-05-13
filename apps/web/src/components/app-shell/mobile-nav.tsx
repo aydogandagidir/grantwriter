@@ -52,11 +52,11 @@ export function MobileNav({
       <DialogContent className="left-0 top-0 h-full max-w-[280px] translate-x-0 translate-y-0 rounded-none border-r p-0">
         <DialogHeader className="border-b p-4">
           <DialogTitle className="flex items-center gap-2 text-base">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <div className="flex h-7 w-7 items-center justify-center bg-primary text-primary-foreground">
               <FileText className="h-4 w-4" />
             </div>
             <span className="font-semibold tracking-tight">bluedev</span>
-            <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               GrantWriter
             </span>
           </DialogTitle>
@@ -133,9 +133,9 @@ function MobileRow({
     : false;
 
   const rowClass = cn(
-    'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
+    'flex items-center gap-2 px-2 py-1.5 text-[13px] transition-colors',
     isSoon
-      ? 'cursor-not-allowed text-muted-foreground/70'
+      ? 'cursor-not-allowed text-muted-foreground/60'
       : active
         ? 'bg-primary/10 font-medium text-primary'
         : 'text-muted-foreground hover:bg-muted hover:text-foreground',

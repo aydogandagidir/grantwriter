@@ -18,31 +18,28 @@ import {
 import { logoutAction } from '@/lib/auth/actions';
 
 /**
- * App shell top bar.
+ * Minimal app top bar.
  *
- * Anatomy:
+ *   ┌─────────────────────────────────────────────────────────────┐
+ *   │ [≡]                                       [TR ▾]  [avatar ▾]│
+ *   └─────────────────────────────────────────────────────────────┘
  *
- *   ┌─────────────────────────────────────────────────────────────────┐
- *   │ [≡] [WORKSPACE · Akasya] [PLAN · Starter]   [Dil] [avatar ▾]    │
- *   └─────────────────────────────────────────────────────────────────┘
+ * Workspace + plan context lives in the sidebar (which is now sticky),
+ * so the topbar is reduced to the controls that only make sense at the
+ * top: locale switcher and the avatar / sign-out menu. The mobile
+ * trigger sits on the left so the sidebar drawer is reachable when the
+ * desktop sidebar is hidden.
  *
- * The left context chips ("WORKSPACE · X" + plan badge) anchor the
- * user — the sidebar shows where they are, the topbar shows what
- * they're working under. The plan badge doubles as a soft upsell
- * surface ("Pro'ya yükselt" link could live here in a follow-up).
+ * Sticky too, so it stays visible while the main column scrolls.
  */
 export function Topbar({
   email,
   displayName,
-  tenantName,
   role,
-  plan,
 }: {
   email: string | null;
   displayName: string | null;
-  tenantName: string;
   role: 'owner' | 'admin' | 'member' | 'viewer';
-  plan: string;
 }) {
   const tAuth = useTranslations('auth');
   const tNav = useTranslations('nav');
@@ -54,29 +51,23 @@ export function Topbar({
     .join('');
 
   return (
-    <header className="flex h-14 items-center justify-between gap-4 border-b bg-card px-4 md:px-6">
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-10 flex h-12 items-center justify-between gap-4 border-b bg-card px-4 md:px-6">
+      <div className="flex items-center gap-2">
         <MobileNav role={role} />
-        <div className="hidden items-center gap-2 md:flex">
-          <span className="rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-primary">
-            {tNav('workspace')} · {tenantName}
-          </span>
-          <span className="rounded-md border bg-muted/40 px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            {tNav('plan')} · {plan}
-          </span>
-        </div>
       </div>
       <div className="flex items-center gap-2">
         <LocaleSwitcher />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="gap-2 px-2">
-              <Avatar className="h-7 w-7">
-                <AvatarFallback className="text-xs">
+            <Button variant="ghost" size="sm" className="h-8 gap-2 px-2">
+              <Avatar className="h-6 w-6">
+                <AvatarFallback className="text-[10px] font-semibold">
                   {initials || <User className="h-3 w-3" />}
                 </AvatarFallback>
               </Avatar>
-              <span className="hidden text-sm md:inline">{displayName ?? email}</span>
+              <span className="hidden text-sm md:inline">
+                {displayName ?? email}
+              </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
@@ -86,7 +77,7 @@ export function Topbar({
                 {displayName && email && (
                   <span className="text-xs text-muted-foreground">{email}</span>
                 )}
-                <span className="pt-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+                <span className="pt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                   {tNav('roleLabel')}: {tNav(`roles.${role}`)}
                 </span>
               </div>

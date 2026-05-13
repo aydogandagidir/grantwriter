@@ -11,7 +11,6 @@ import {
   Plus,
   Receipt,
   ScrollText,
-  Settings,
   Sparkles,
   TrendingUp,
   Users,
@@ -19,43 +18,44 @@ import {
 import { useTranslations } from 'next-intl';
 import type { ComponentType } from 'react';
 
+import { StatusBadge, type StatusBadgeVariant } from '@/components/ui/status-badge';
 import { Link, usePathname } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 
-import { StatusBadge, type StatusBadgeVariant } from '@/components/ui/status-badge';
-
 /**
- * App-shell sidebar — sectioned navigation with availability badges.
+ * App-shell sidebar — sticky, sectioned navigation with availability
+ * badges. Linear / Vercel aesthetic: square corners, single hairline
+ * border, no shadows. Density is the point: every row earns its line
+ * of vertical space.
  *
- * Layout:
+ * Anatomy
  *
- *   ┌────────────────────────┐
- *   │ [logo] bluedev  [tag]  │  brand header
- *   │ <tenant name>          │
- *   ├────────────────────────┤
- *   │ ÖZET                   │  section header (caps)
- *   │ ▸ Modül Merkezi        │  active row (primary tint)
- *   │                        │
- *   │ TEKLİFLER              │
- *   │ ▸ Tüm Teklifler [AKTİF]│
- *   │ + Yeni Teklif          │
- *   │                        │
- *   │ PROGRAMLAR             │
- *   │ ▸ TÜBİTAK 1501 [AKTİF] │
- *   │ ▸ Horizon EU   [BETA]  │
- *   │ ▸ ...                  │
- *   │                        │
- *   │ ARAÇLAR / YÖNETİM ...  │
- *   ├────────────────────────┤
- *   │ user@example.com       │  footer
- *   │ Rol: owner             │
- *   │ Settings · Logout      │
- *   └────────────────────────┘
+ *   ┌─────────────────────────┐
+ *   │ [logo] bluedev  [G…]    │  brand header (border-b)
+ *   │ tenant name             │
+ *   ├─────────────────────────┤
+ *   │ ÖZET                    │  caps eyebrow
+ *   │  ▸ Modül Merkezi        │  row (active = primary tint)
+ *   │                         │
+ *   │ BAŞVURULAR              │
+ *   │  ▸ Tüm Başvurular       │
+ *   │  + Yeni Başvuru         │
+ *   │                         │
+ *   │ PROGRAMLAR              │
+ *   │  ▸ TÜBİTAK 1501  [...]  │  StatusBadge only when ≠ active
+ *   │                         │
+ *   │ YÖNETİM                 │
+ *   ├─────────────────────────┤
+ *   │ admin@bluedev.dev       │  footer
+ *   │ Rol: Sahip              │
+ *   └─────────────────────────┘
  *
- * Items with ``adminOnly`` are filtered out for ``member`` / ``viewer``
- * roles. Items with ``status: 'soon'`` are rendered muted and
- * non-interactive — they exist for discoverability so users see what's
- * coming without thinking the app is broken when nothing happens.
+ * Sticky: ``sticky top-0 h-screen`` so the sidebar stays put while the
+ * main column scrolls — the layout flex container provides the
+ * positioning context.
+ *
+ * Visibility: ``md:flex hidden`` on desktop; ``MobileNav`` renders the
+ * same sections in a drawer on narrow viewports.
  */
 
 export interface NavItem {
@@ -81,7 +81,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     i18nKey: 'proposalsGroup',
     items: [
-      { href: '/proposals', i18nKey: 'proposals', icon: FileText, status: 'active' },
+      { href: '/proposals', i18nKey: 'proposals', icon: FileText },
       { href: '/proposals/new', i18nKey: 'newProposal', icon: Plus },
     ],
   },
@@ -176,27 +176,25 @@ export function Sidebar({
   const isAdmin = role === 'owner' || role === 'admin';
 
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r bg-card md:flex">
+    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-card md:flex">
       {/* Brand + tenant header */}
-      <div className="border-b px-4 py-4">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm shadow-primary/30">
-            <FileText className="h-4 w-4" />
+      <div className="border-b px-4 py-3.5">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center bg-primary text-primary-foreground">
+            <FileText className="h-3.5 w-3.5" />
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-semibold tracking-tight">bluedev</span>
-            <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              GrantWriter
-            </span>
-          </div>
+          <span className="text-sm font-semibold tracking-tight">bluedev</span>
+          <span className="bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+            GrantWriter
+          </span>
         </div>
-        <p className="mt-2.5 truncate text-sm text-foreground" title={tenantName}>
+        <p className="mt-2 truncate text-xs text-foreground" title={tenantName}>
           {tenantName}
         </p>
       </div>
 
       {/* Sectioned nav */}
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+      <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-3">
         {NAV_SECTIONS.map((section) => (
           <Section
             key={section.i18nKey}
@@ -208,23 +206,14 @@ export function Sidebar({
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="border-t px-4 py-3">
-        <p className="truncate text-xs text-muted-foreground" title={email ?? ''}>
+      {/* Footer: identity context */}
+      <div className="border-t px-4 py-2.5">
+        <p className="truncate text-[11px] text-muted-foreground" title={email ?? ''}>
           {email}
         </p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
           {t('roleLabel')}: {t(`roles.${role}`)}
         </p>
-        <div className="mt-2 flex gap-3 text-[11px] text-muted-foreground">
-          <Link
-            href="/settings/llm-config"
-            className="flex items-center gap-1 hover:text-foreground"
-          >
-            <Settings className="h-3 w-3" />
-            {t('settings')}
-          </Link>
-        </div>
       </div>
     </aside>
   );
@@ -250,10 +239,10 @@ function Section({
 
   return (
     <div>
-      <div className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {t(section.i18nKey)}
       </div>
-      <ul className="space-y-0.5">
+      <ul>
         {visibleItems.map((item) => (
           <li key={item.i18nKey}>
             <NavRow item={item} pathname={pathname} t={t} onNavigate={onNavigate} />
@@ -281,10 +270,13 @@ function NavRow({
     ? pathname === item.href || pathname.startsWith(`${item.href}/`)
     : false;
 
+  // Active state uses a left-edge accent + tinted text — same family
+  // as Linear / Vercel sidebars where the active row is the obvious
+  // anchor but doesn't shout.
   const rowClass = cn(
-    'group flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+    'group flex items-center gap-2 px-2 py-1.5 text-[13px] transition-colors',
     isSoon
-      ? 'cursor-not-allowed text-muted-foreground/70'
+      ? 'cursor-not-allowed text-muted-foreground/60'
       : active
         ? 'bg-primary/10 font-medium text-primary'
         : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -292,7 +284,7 @@ function NavRow({
 
   const content = (
     <>
-      <Icon className={cn('h-4 w-4 shrink-0', isSoon && 'opacity-60')} />
+      <Icon className={cn('h-3.5 w-3.5 shrink-0', isSoon && 'opacity-60')} />
       <span className="flex-1 truncate">{t(item.i18nKey)}</span>
       {item.status && item.status !== 'active' && (
         <StatusBadge variant={item.status}>
