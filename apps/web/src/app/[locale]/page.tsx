@@ -4,9 +4,9 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 
 /**
- * Root landing page. Redirects to /dashboard if the visitor has a
- * session, otherwise to /login. Keeps the marketing site separate so
- * `/` always means "do something with the app".
+ * Root landing page. Redirects to:
+ * - /dashboard if the visitor has a valid session
+ * - /home (marketing homepage) if not logged in
  */
 export default async function LocaleHome({
   params,
@@ -21,5 +21,5 @@ export default async function LocaleHome({
     data: { user },
   } = await supabase.auth.getUser();
 
-  redirect(user ? '/dashboard' : '/login');
+  redirect(user ? '/dashboard' : '/home');
 }
