@@ -17,18 +17,35 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { logoutAction } from '@/lib/auth/actions';
 
+/**
+ * App shell top bar.
+ *
+ * Anatomy:
+ *
+ *   ┌─────────────────────────────────────────────────────────────────┐
+ *   │ [≡] [WORKSPACE · Akasya] [PLAN · Starter]   [Dil] [avatar ▾]    │
+ *   └─────────────────────────────────────────────────────────────────┘
+ *
+ * The left context chips ("WORKSPACE · X" + plan badge) anchor the
+ * user — the sidebar shows where they are, the topbar shows what
+ * they're working under. The plan badge doubles as a soft upsell
+ * surface ("Pro'ya yükselt" link could live here in a follow-up).
+ */
 export function Topbar({
   email,
   displayName,
   tenantName,
   role,
+  plan,
 }: {
   email: string | null;
   displayName: string | null;
   tenantName: string;
   role: 'owner' | 'admin' | 'member' | 'viewer';
+  plan: string;
 }) {
-  const t = useTranslations('auth');
+  const tAuth = useTranslations('auth');
+  const tNav = useTranslations('nav');
   const initials = (displayName ?? email ?? '?')
     .split(/[ @]/)
     .filter(Boolean)
@@ -37,10 +54,17 @@ export function Topbar({
     .join('');
 
   return (
-    <header className="flex h-14 items-center justify-between gap-4 border-b bg-card/40 px-4 md:px-6">
-      <div className="flex items-center gap-2">
+    <header className="flex h-14 items-center justify-between gap-4 border-b bg-card px-4 md:px-6">
+      <div className="flex items-center gap-3">
         <MobileNav role={role} />
-        <div className="text-sm font-medium text-muted-foreground">{tenantName}</div>
+        <div className="hidden items-center gap-2 md:flex">
+          <span className="rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-primary">
+            {tNav('workspace')} · {tenantName}
+          </span>
+          <span className="rounded-md border bg-muted/40 px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            {tNav('plan')} · {plan}
+          </span>
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <LocaleSwitcher />
@@ -48,7 +72,9 @@ export function Topbar({
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="gap-2 px-2">
               <Avatar className="h-7 w-7">
-                <AvatarFallback className="text-xs">{initials || <User className="h-3 w-3" />}</AvatarFallback>
+                <AvatarFallback className="text-xs">
+                  {initials || <User className="h-3 w-3" />}
+                </AvatarFallback>
               </Avatar>
               <span className="hidden text-sm md:inline">{displayName ?? email}</span>
             </Button>
@@ -60,6 +86,9 @@ export function Topbar({
                 {displayName && email && (
                   <span className="text-xs text-muted-foreground">{email}</span>
                 )}
+                <span className="pt-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+                  {tNav('roleLabel')}: {tNav(`roles.${role}`)}
+                </span>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -67,7 +96,7 @@ export function Topbar({
               <DropdownMenuItem asChild>
                 <button type="submit" className="w-full cursor-pointer">
                   <LogOut className="h-4 w-4" />
-                  {t('logout')}
+                  {tAuth('logout')}
                 </button>
               </DropdownMenuItem>
             </form>

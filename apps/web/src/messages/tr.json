@@ -44,23 +44,100 @@
     "logout": "Çıkış"
   },
   "nav": {
-    "dashboard": "Anasayfa",
-    "proposals": "Başvurular",
+    "overview": "Özet",
+    "proposalsGroup": "Başvurular",
+    "programs": "Programlar",
+    "admin": "Yönetim",
+    "dashboard": "Modül Merkezi",
+    "proposals": "Tüm Başvurular",
+    "newProposal": "Yeni Başvuru",
     "settings": "Ayarlar",
     "llmConfig": "LLM Anahtarları",
     "members": "Üyeler",
     "invitations": "Davetler",
     "audit": "Denetim Kaydı",
     "usage": "Kullanım",
-    "billing": "Fatura"
+    "billing": "Fatura",
+    "tubitak_1501Short": "TÜBİTAK 1501",
+    "tubitak_1507Short": "TÜBİTAK 1507",
+    "kosgeb_argeShort": "KOSGEB AR-GE",
+    "horizon_euShort": "Horizon Europe",
+    "cascade_nlnetShort": "Cascade / NLnet",
+    "workspace": "Çalışma Alanı",
+    "plan": "Plan",
+    "roleLabel": "Rol",
+    "openMenu": "Menüyü aç",
+    "status": {
+      "active": "Aktif",
+      "beta": "Beta",
+      "soon": "Yakında",
+      "admin": "Yönetici"
+    },
+    "roles": {
+      "owner": "Sahip",
+      "admin": "Yönetici",
+      "member": "Üye",
+      "viewer": "İzleyici"
+    }
   },
   "dashboard": {
-    "title": "Anasayfa",
-    "welcome": "Hoş geldin, {name}",
-    "tenantPlan": "{tenant} · {plan} plan",
+    "title": "Modül Merkezi",
+    "activePeriod": "Aktif Dönem",
+    "planTag": "Plan",
+    "greeting": "Hoş geldiniz",
+    "heroSubtitle": "{period} dönemi için başvurularını planla, AI destekli taslak üret, atıfları doğrula.",
+    "primaryCta": "Yeni Başvuru Oluştur",
+    "kpiActiveProposals": "Aktif Başvuru",
+    "kpiActiveProposalsHint": "Çalışmaya devam edilenler",
+    "kpiDraftsThisMonth": "Bu Ay LLM Çağrısı",
+    "kpiDraftsThisMonthHint": "{period} · BYOK + platform",
+    "kpiCitationsVerified": "Doğrulanan Atıf",
+    "kpiCitationsVerifiedHint": "Crossref + OpenAlex",
+    "kpiPlan": "Plan",
+    "modulesTitle": "Programlar",
+    "modulesSubtitle": "Aktif modüller seçilebilir. Kilitli olanlar için planını yükselt.",
+    "suggestionAiTitle": "BYOK anahtarını ekle",
+    "suggestionAiBody": "Anthropic veya OpenAI anahtarını ekleyerek AI taslaklarını anında üretmeye başla.",
+    "suggestionAiCta": "Ayarlara git",
+    "suggestionInviteTitle": "Ekibini davet et",
+    "suggestionInviteBody": "Bir başvuru yazımı genelde 2-3 kişilik ekip işidir. Davet linki gönder.",
+    "suggestionInviteCta": "Üye davet et",
     "quickActions": "Hızlı işlemler",
-    "newProposal": "Yeni başvuru",
-    "viewProposals": "Başvurularımı gör"
+    "viewProposals": "Başvurularımı gör",
+    "welcome": "Hoş geldin, {name}",
+    "tenantPlan": "{tenant} · {plan} plan"
+  },
+  "programs": {
+    "tubitak_1501": {
+      "name": "TÜBİTAK 1501",
+      "tagline": "Sanayi AR-GE Projeleri Destekleme Programı — KOBİ + büyük firma.",
+      "footer": "Excellence · Implementation · Budget"
+    },
+    "tubitak_1507": {
+      "name": "TÜBİTAK 1507",
+      "tagline": "KOBİ AR-GE Başlangıç Destek Programı — ilk projen için.",
+      "footer": "Excellence · İş Planı · Bütçe"
+    },
+    "kosgeb_arge": {
+      "name": "KOSGEB AR-GE",
+      "tagline": "AR-GE, Ürün-Süreç Yenilik ve Endüstriyel Uygulama desteği.",
+      "footer": "Faaliyet · Bütçe · Çıktı"
+    },
+    "horizon_eu": {
+      "name": "Horizon Europe RIA/IA",
+      "tagline": "AB araştırma + inovasyon çerçevesi; uluslararası konsorsiyum.",
+      "footer": "Excellence · Impact · Implementation"
+    },
+    "cascade_nlnet": {
+      "name": "Cascade Funding / NLnet",
+      "tagline": "Açık kaynak + internet kamu yararı için küçük hibe akışları.",
+      "footer": "Proposal · Milestones · Budget"
+    },
+    "eurostars": {
+      "name": "Eurostars",
+      "tagline": "Eureka ortak AR-GE — uluslararası KOBİ konsorsiyumu.",
+      "footer": "Yakında — Faz 2"
+    }
   },
   "llmConfig": {
     "title": "LLM Anahtarları (BYOK)",

@@ -44,23 +44,100 @@
     "logout": "Log out"
   },
   "nav": {
-    "dashboard": "Dashboard",
-    "proposals": "Proposals",
+    "overview": "Overview",
+    "proposalsGroup": "Proposals",
+    "programs": "Programs",
+    "admin": "Admin",
+    "dashboard": "Module Hub",
+    "proposals": "All Proposals",
+    "newProposal": "New Proposal",
     "settings": "Settings",
     "llmConfig": "LLM Keys",
     "members": "Members",
     "invitations": "Invitations",
     "audit": "Audit Log",
     "usage": "Usage",
-    "billing": "Billing"
+    "billing": "Billing",
+    "tubitak_1501Short": "TÜBİTAK 1501",
+    "tubitak_1507Short": "TÜBİTAK 1507",
+    "kosgeb_argeShort": "KOSGEB AR-GE",
+    "horizon_euShort": "Horizon Europe",
+    "cascade_nlnetShort": "Cascade / NLnet",
+    "workspace": "Workspace",
+    "plan": "Plan",
+    "roleLabel": "Role",
+    "openMenu": "Open menu",
+    "status": {
+      "active": "Active",
+      "beta": "Beta",
+      "soon": "Soon",
+      "admin": "Admin"
+    },
+    "roles": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "member": "Member",
+      "viewer": "Viewer"
+    }
   },
   "dashboard": {
-    "title": "Dashboard",
-    "welcome": "Welcome, {name}",
-    "tenantPlan": "{tenant} · {plan} plan",
+    "title": "Module Hub",
+    "activePeriod": "Active Period",
+    "planTag": "Plan",
+    "greeting": "Welcome",
+    "heroSubtitle": "Plan your {period} grant submissions, generate AI drafts, and verify every citation.",
+    "primaryCta": "New Proposal",
+    "kpiActiveProposals": "Active Proposals",
+    "kpiActiveProposalsHint": "In-flight grants",
+    "kpiDraftsThisMonth": "LLM Calls (this month)",
+    "kpiDraftsThisMonthHint": "{period} · BYOK + platform",
+    "kpiCitationsVerified": "Verified Citations",
+    "kpiCitationsVerifiedHint": "Crossref + OpenAlex",
+    "kpiPlan": "Plan",
+    "modulesTitle": "Programs",
+    "modulesSubtitle": "Active modules are clickable. Upgrade your plan for locked ones.",
+    "suggestionAiTitle": "Add your BYOK key",
+    "suggestionAiBody": "Plug in your Anthropic or OpenAI key to start generating AI drafts on demand.",
+    "suggestionAiCta": "Open settings",
+    "suggestionInviteTitle": "Invite your team",
+    "suggestionInviteBody": "Most proposals take 2-3 people. Send an invitation link from settings.",
+    "suggestionInviteCta": "Invite a teammate",
     "quickActions": "Quick actions",
-    "newProposal": "New proposal",
-    "viewProposals": "View my proposals"
+    "viewProposals": "View my proposals",
+    "welcome": "Welcome, {name}",
+    "tenantPlan": "{tenant} · {plan} plan"
+  },
+  "programs": {
+    "tubitak_1501": {
+      "name": "TÜBİTAK 1501",
+      "tagline": "Industrial R&D support — SMEs and large firms.",
+      "footer": "Excellence · Implementation · Budget"
+    },
+    "tubitak_1507": {
+      "name": "TÜBİTAK 1507",
+      "tagline": "SME R&D starter programme — for your first project.",
+      "footer": "Excellence · Work Plan · Budget"
+    },
+    "kosgeb_arge": {
+      "name": "KOSGEB R&D",
+      "tagline": "R&D, product-process innovation, industrial application grants.",
+      "footer": "Activities · Budget · Outputs"
+    },
+    "horizon_eu": {
+      "name": "Horizon Europe RIA/IA",
+      "tagline": "EU research + innovation framework; international consortium.",
+      "footer": "Excellence · Impact · Implementation"
+    },
+    "cascade_nlnet": {
+      "name": "Cascade Funding / NLnet",
+      "tagline": "Open-source + internet public-interest cascade grants.",
+      "footer": "Proposal · Milestones · Budget"
+    },
+    "eurostars": {
+      "name": "Eurostars",
+      "tagline": "Eureka joint R&D — international SME consortium.",
+      "footer": "Coming in Phase 2"
+    }
   },
   "llmConfig": {
     "title": "LLM Keys (BYOK)",

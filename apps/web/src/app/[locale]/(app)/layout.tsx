@@ -51,15 +51,16 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar role={me.role} />
+      <Sidebar role={me.role} tenantName={me.tenant_name} email={me.email} />
       <div className="flex flex-1 flex-col">
         <Topbar
           email={me.email}
           displayName={me.display_name}
           tenantName={me.tenant_name}
           role={me.role}
+          plan={me.plan}
         />
-        <main className="flex-1 overflow-y-auto bg-muted/20 p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-muted/20 p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );
