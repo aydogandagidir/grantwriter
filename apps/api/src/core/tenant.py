@@ -6,7 +6,7 @@ handlers enforce tenant scoping in app code by mapping the JWT's
 single source of truth for that mapping; routes that need to gate by
 role (admin-only endpoints) read the second tuple element.
 
-Mirrors the SQL of the ``auth.tenant_id()`` and ``auth.is_tenant_admin()``
+Mirrors the SQL of the ``public.tenant_id()`` and ``public.is_tenant_admin()``
 SECURITY DEFINER functions in migration 009 — kept in sync with them
 so the policy intent (deleted users → 404, only owner/admin sees
 sensitive data) is the same everywhere.
@@ -30,7 +30,7 @@ async def resolve_tenant_and_role(
     """Look up the caller's tenant + role; raises 404 for inactive users.
 
     Soft-deleted users (``deleted_at IS NOT NULL``) are treated as
-    nonexistent — same logic as the ``auth.tenant_id()`` helper.
+    nonexistent — same logic as the ``public.tenant_id()`` helper.
     """
 
     row = await conn.fetchrow(
