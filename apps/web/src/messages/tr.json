@@ -324,5 +324,137 @@
     "notFound": "Aradığın kayıt bulunamadı.",
     "rateLimit": "Çok fazla istek. Lütfen biraz bekle.",
     "quotaExceeded": "Plan limitin doldu. Fatura sayfasından yükselt."
+  },
+  "onboarding": {
+    "step1Title": "Çalışma alanını oluştur",
+    "step1Subtitle": "Ekibinin hibe başvurularını yöneteceği alan.",
+    "step2Title": "Dil tercihini seç",
+    "step2Subtitle": "Arayüz ve varsayılan başvuru dilini belirle.",
+    "workspaceName": "Çalışma alanı adı",
+    "workspaceNamePlaceholder": "Şirketim A.Ş.",
+    "workspaceSlug": "URL kısayolu",
+    "slugDescription": "Adresiniz: {domain}",
+    "preferredLanguage": "Tercih edilen dil",
+    "languageTrDesc": "Arayüz Türkçe",
+    "languageEnDesc": "Interface in English",
+    "next": "Devam",
+    "back": "Geri",
+    "createWorkspace": "Alanı oluştur",
+    "creating": "Oluşturuluyor…",
+    "errorGeneric": "Çalışma alanı oluşturulamadı. Tekrar dene."
+  },
+  "marketing": {
+    "nav": {
+      "features": "Özellikler",
+      "pricing": "Fiyatlandırma",
+      "login": "Giriş",
+      "signup": "Ücretsiz başla"
+    },
+    "hero": {
+      "badge": "AI destekli hibe yazımı",
+      "title": "Çağrı linkini ver, taslak başvuruyu al",
+      "subtitle": "TÜBİTAK, KOSGEB ve Horizon Europe başvurularınızı dakikalar içinde hazırlayın. Kaynaklı, compliance-onaylı, distinctive.",
+      "cta": "Ücretsiz başla",
+      "secondaryCta": "Özellikleri gör",
+      "note": "Kredi kartı gerekmez · 3 başvuru/ay ücretsiz"
+    },
+    "stats": {
+      "programs": { "value": "5+", "label": "Desteklenen program" },
+      "agents": { "value": "7", "label": "AI ajanı" },
+      "draftTime": { "value": "<60dk", "label": "Taslak süresi" },
+      "languages": { "value": "2", "label": "Dil (TR/EN)" }
+    },
+    "features": {
+      "title": "Neden GrantWriter?",
+      "subtitle": "Hibe uzmanlarının bilgisini AI ile birleştirerek başvurularınızı hızlandırın.",
+      "aiDraft": {
+        "title": "7 Uzman AI Ajanı",
+        "description": "Excellence, Impact, Implementation yazıcıları ve Compliance Reviewer ile başvurunuzun her bölümü otomatik üretilir."
+      },
+      "citations": {
+        "title": "Atıf Doğrulama",
+        "description": "Her referans Crossref ve OpenAlex ile gerçek zamanlı doğrulanır. Uydurma atıf riski sıfıra yaklaşır."
+      },
+      "compliance": {
+        "title": "AI Act & KVKK Uyumu",
+        "description": "EU AI Act, KVKK ve GDPR uyumlu. AI disclosure metinleri otomatik üretilir."
+      },
+      "bilingual": {
+        "title": "İki Dilli (TR/EN)",
+        "description": "Aynı brief ile Türkçe ve İngilizce başvuru taslakları oluşturun."
+      },
+      "export": {
+        "title": "DOCX & Excel Export",
+        "description": "TÜBİTAK PRODİS, Horizon Europe Standard Application Form veya Lump Sum Excel şablonlarına otomatik aktar."
+      },
+      "distinctiveness": {
+        "title": "Distinctiveness Skoru",
+        "description": "Taslağınızı CORDIS veritabanındaki 12K+ projeyle karşılaştırarak özgünlük skoru hesaplar."
+      }
+    },
+    "programs": {
+      "title": "Desteklenen Programlar",
+      "subtitle": "Faz 1'de 5 ana hibe programı, yakında daha fazlası.",
+      "list": {
+        "tubitak1501": "TÜBİTAK 1501 — Sanayi Ar-Ge",
+        "tubitak1507": "TÜBİTAK 1507 — KOBİ Ar-Ge",
+        "kosgeb": "KOSGEB Ar-Ge ve İnovasyon",
+        "horizonEU": "Horizon Europe RIA/IA",
+        "cascade": "Cascade Funding",
+        "nlnet": "NLnet (NGI)"
+      }
+    },
+    "cta": {
+      "title": "İlk başvurunuzu şimdi hazırlayın",
+      "subtitle": "3 başvuru/ay ücretsiz. Kredi kartı gerekmez.",
+      "button": "Ücretsiz kayıt ol"
+    },
+    "footer": {
+      "rights": "Tüm hakları saklıdır."
+    }
+  },
+  "pricing": {
+    "title": "Fiyatlandırma",
+    "subtitle": "KOBİ'den enterprise'a — her ölçeğe uygun plan.",
+    "perMonth": "ay",
+    "contactUs": "İletişime geç",
+    "popular": "En popüler",
+    "getStarted": "Ücretsiz başla",
+    "contactSales": "Satışla iletişime geç",
+    "login": "Giriş",
+    "signup": "Ücretsiz başla",
+    "rights": "Tüm hakları saklıdır.",
+    "home": "Ana sayfa",
+    "plans": {
+      "starter": {
+        "name": "Starter",
+        "description": "Hibe yazımına giriş yapmak isteyenler için."
+      },
+      "pro": {
+        "name": "Pro",
+        "description": "Ciddi başvuru yapan KOBİ'ler ve danışmanlıklar için."
+      },
+      "enterprise": {
+        "name": "Enterprise",
+        "description": "Büyük ölçekli kuruluşlar ve ajanslar için özel çözüm."
+      }
+    },
+    "features": {
+      "proposals3": "Ayda 3 başvuru",
+      "proposalsUnlimited": "Sınırsız başvuru",
+      "programs5": "5 hibe programı",
+      "citations": "Atıf doğrulama",
+      "docxExport": "DOCX dışa aktarım",
+      "xlsxExport": "Lump Sum Excel",
+      "byok": "BYOK (kendi API anahtarın)",
+      "communitySupport": "Topluluk desteği",
+      "prioritySupport": "Öncelikli destek",
+      "teamMembers": "Sınırsız ekip üyesi",
+      "dedicatedSupport": "Özel müşteri temsilcisi",
+      "sla": "SLA garantisi",
+      "customIntegrations": "Özel entegrasyonlar",
+      "selfHosted": "Self-hosted seçeneği",
+      "allExports": "Tüm dışa aktarım formatları"
+    }
   }
 }

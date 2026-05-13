@@ -9,6 +9,8 @@ const intlMiddleware = createIntlMiddleware(routing);
 const PUBLIC_PATH_PREFIXES = [
   '/login',
   '/signup',
+  '/home',       // marketing homepage
+  '/pricing',    // marketing pricing
   '/invitations', // public invite preview/accept
 ];
 

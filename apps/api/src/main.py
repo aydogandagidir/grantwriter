@@ -36,6 +36,7 @@ from src.api.routes.jobs import router as jobs_router
 from src.api.routes.llm_config import router as llm_config_router
 from src.api.routes.me import router as me_router
 from src.api.routes.members import router as members_router
+from src.api.routes.onboarding import router as onboarding_router
 from src.api.routes.programmes import router as programmes_router
 from src.api.routes.proposals import router as proposals_router
 from src.api.routes.usage import router as usage_router
@@ -185,6 +186,7 @@ def create_app() -> FastAPI:
     app.include_router(comments_id_router)
     app.include_router(programmes_router)
     app.include_router(calls_router)
+    app.include_router(onboarding_router)
 
     return app
 
