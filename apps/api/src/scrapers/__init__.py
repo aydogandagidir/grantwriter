@@ -62,8 +62,8 @@ def get_scraper(source: CallSource) -> type[BaseScraper]:
 
 # Concrete scraper modules are imported below so their @register_scraper
 # decorators fire at package-import time (mirrors the programs registry
-# pattern). Foundation lands with no concrete scrapers; Faz 1.1 onwards
-# adds them here.
+# pattern). Add new sources here as scrapers land.
+from src.scrapers import nlnet as _nlnet  # noqa: E402,F401  (decorator side-effect)
 
 
 __all__ = [
