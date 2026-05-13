@@ -56,12 +56,20 @@ def _resolve_version(fallback: str) -> str:
     ``importlib.metadata.version`` is the source of truth in production
     (no drift from ``pyproject.toml``). In source-mode tests the package
     may not be installed yet, so we degrade to the configured fallback.
+
+    Defensive against the ``""`` case: a stale editable install whose
+    ``METADATA`` file was written before ``pyproject.toml`` had its
+    version set can return an empty string instead of raising. We treat
+    that the same as PackageNotFoundError so FastAPI's
+    ``assert self.version`` assertion (OpenAPI requires a non-empty
+    version string) never fires.
     """
 
     try:
-        return version(_PACKAGE_NAME)
+        installed = version(_PACKAGE_NAME)
     except PackageNotFoundError:
-        return fallback
+        return fallback or "0.1.0"
+    return installed or fallback or "0.1.0"
 
 
 @asynccontextmanager
