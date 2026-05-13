@@ -63,7 +63,8 @@ def get_scraper(source: CallSource) -> type[BaseScraper]:
 # Concrete scraper modules are imported below so their @register_scraper
 # decorators fire at package-import time (mirrors the programs registry
 # pattern). Add new sources here as scrapers land.
-from src.scrapers import nlnet as _nlnet  # noqa: E402,F401  (decorator side-effect)
+from src.scrapers import eu_ft_portal as _eu_ft_portal  # noqa: E402,F401
+from src.scrapers import nlnet as _nlnet  # noqa: E402,F401
 
 
 __all__ = [

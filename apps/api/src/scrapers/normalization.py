@@ -131,16 +131,34 @@ def parse_budget_range(
     if not text:
         return None, None, default_currency
 
-    match = _BUDGET_PATTERN.search(text)
-    if not match:
+    # Walk all candidate matches and pick the first that carries a real
+    # currency signal — a symbol, unit suffix, or currency word. Walking
+    # instead of taking ``search()`` first hit lets us skip non-budget
+    # ranges like "TRL 3-5" that precede the actual budget in a topic
+    # description ("…at TRL 3-5 with budget €2-8 million…").
+    match = None
+    low_unit: str | None = None
+    high_unit: str | None = None
+    symbol: str | None = None
+    currency_token: str | None = None
+    for candidate in _BUDGET_PATTERN.finditer(text):
+        c_low_unit = candidate.group("low_unit")
+        c_high_unit = candidate.group("high_unit")
+        c_symbol = candidate.group("symbol")
+        c_currency = candidate.group("currency")
+        if not (c_symbol or c_low_unit or c_high_unit or c_currency):
+            continue
+        match = candidate
+        low_unit, high_unit = c_low_unit, c_high_unit
+        symbol, currency_token = c_symbol, c_currency
+        break
+
+    if match is None:
         return None, None, default_currency
 
     raw_low = _normalize_number(match.group("low"))
     raw_high_str = match.group("high")
     raw_high = _normalize_number(raw_high_str) if raw_high_str else None
-
-    low_unit = match.group("low_unit")
-    high_unit = match.group("high_unit")
     # When only one end declares a unit, that unit applies to both — for
     # "€2-10M" the M is on high; for "500K – 1.5M" each end has its own.
     fallback_unit = low_unit or high_unit
@@ -150,9 +168,9 @@ def parse_budget_range(
     low: float | None = raw_low * low_mul if raw_low is not None else None
     high: float | None = raw_high * high_mul if raw_high is not None else None
 
-    symbol = match.group("symbol") or match.group("currency")
-    if symbol:
-        currency = _CURRENCY_SYMBOLS.get(symbol, symbol.upper())
+    currency_signal = symbol or currency_token
+    if currency_signal:
+        currency = _CURRENCY_SYMBOLS.get(currency_signal, currency_signal.upper())
     else:
         currency = default_currency
 
