@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Compass,
   FileText,
   Home,
   KeyRound,
@@ -26,6 +27,7 @@ export interface NavItem {
 
 export const PRIMARY_NAV: NavItem[] = [
   { href: '/dashboard', i18nKey: 'dashboard', icon: Home },
+  { href: '/calls', i18nKey: 'calls', icon: Compass },
   { href: '/proposals', i18nKey: 'proposals', icon: FileText },
 ];
 

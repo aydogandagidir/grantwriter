@@ -39,9 +39,12 @@ export class ApiError extends Error {
   }
 }
 
+type SearchParamScalar = string | number | boolean;
+type SearchParamValue = SearchParamScalar | SearchParamScalar[] | null | undefined;
+
 export interface ApiRequestInit extends Omit<RequestInit, 'body'> {
   body?: unknown;
-  searchParams?: Record<string, string | number | boolean | undefined>;
+  searchParams?: Record<string, SearchParamValue>;
 }
 
 export function buildUrl(path: string, searchParams?: ApiRequestInit['searchParams']): string {
@@ -50,7 +53,16 @@ export function buildUrl(path: string, searchParams?: ApiRequestInit['searchPara
   const url = new URL(`${base}${cleaned}`);
   if (searchParams) {
     for (const [key, value] of Object.entries(searchParams)) {
-      if (value !== undefined && value !== null) {
+      if (value === undefined || value === null) continue;
+      if (Array.isArray(value)) {
+        // FastAPI's ``Query(default=None)`` for ``list[str]`` reads each
+        // value as a separate occurrence of the same key — `?k=a&k=b`
+        // rather than `?k=a,b`. ``append`` matches that contract.
+        for (const item of value) {
+          if (item === undefined || item === null) continue;
+          url.searchParams.append(key, String(item));
+        }
+      } else {
         url.searchParams.set(key, String(value));
       }
     }

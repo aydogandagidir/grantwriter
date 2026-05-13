@@ -12,7 +12,9 @@ import type {
   AuditListResponse,
   BillingStatus,
   CallCreate,
+  CallDetail,
   CallListResponse,
+  CallSearchFilters,
   CheckoutResponse,
   CommentListResponse,
   CommentRecord,
@@ -54,7 +56,9 @@ export const queryKeys = {
     ['comments', proposalId, opts ?? {}] as const,
   validation: (proposalId: string) => ['validation', proposalId] as const,
   programmes: ['programmes'] as const,
-  calls: (programmeId?: string) => ['calls', programmeId ?? 'all'] as const,
+  calls: (filters?: CallSearchFilters) =>
+    ['calls', filters ? normalizeCallFilters(filters) : 'all'] as const,
+  callDetail: (id: string) => ['calls', 'detail', id] as const,
   proposalList: ['proposals'] as const,
   proposal: (id: string) => ['proposals', id] as const,
 };
@@ -369,14 +373,80 @@ export function useProgrammes() {
 
 // ── Calls catalog ───────────────────────────────────────────────────────
 
-export function useCalls(programmeId?: string, opts: { enabled?: boolean } = {}) {
+/**
+ * Normalise filters into a stable query-key payload + searchParams.
+ *
+ * Two arrays with the same members but different ordering must produce
+ * the same cache key, otherwise `useCalls` would re-fetch every time the
+ * user toggles a chip in the same set. We sort each array and drop
+ * empties so `{ sectors: ['J62','C29'] }` and `{ sectors: ['C29','J62'] }`
+ * cache-hit each other.
+ */
+function normalizeCallFilters(filters: CallSearchFilters): CallSearchFilters {
+  const out: CallSearchFilters = {};
+  for (const key of Object.keys(filters) as (keyof CallSearchFilters)[]) {
+    const value = filters[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      (out as Record<string, unknown>)[key] = [...value].sort();
+    } else {
+      (out as Record<string, unknown>)[key] = value;
+    }
+  }
+  return out;
+}
+
+function callFiltersToSearchParams(
+  filters: CallSearchFilters,
+): Record<string, string | number | string[] | undefined> {
+  // apiClient's URLSearchParams builder accepts plain strings + arrays.
+  // Drop fields the API treats as "not specified".
+  const params: Record<string, string | number | string[] | undefined> = {};
+  if (filters.q?.trim()) params.q = filters.q.trim();
+  if (filters.programme_ids?.length) params.programme_ids = filters.programme_ids;
+  if (filters.agency_ids?.length) params.agency_ids = filters.agency_ids;
+  if (filters.source) params.source = filters.source;
+  if (filters.status_filter) params.status_filter = filters.status_filter;
+  if (filters.deadline_after) params.deadline_after = filters.deadline_after;
+  if (filters.deadline_before) params.deadline_before = filters.deadline_before;
+  if (filters.budget_min_eur != null) params.budget_min_eur = filters.budget_min_eur;
+  if (filters.budget_max_eur != null) params.budget_max_eur = filters.budget_max_eur;
+  if (filters.trl_min != null) params.trl_min = filters.trl_min;
+  if (filters.trl_max != null) params.trl_max = filters.trl_max;
+  if (filters.sectors?.length) params.sectors = filters.sectors;
+  if (filters.eligibility_tags?.length) params.eligibility_tags = filters.eligibility_tags;
+  if (filters.geo_scope?.length) params.geo_scope = filters.geo_scope;
+  if (filters.language) params.language = filters.language;
+  if (filters.sort) params.sort = filters.sort;
+  if (filters.limit != null) params.limit = filters.limit;
+  if (filters.offset != null) params.offset = filters.offset;
+  return params;
+}
+
+export function useCalls(filters: CallSearchFilters = {}, opts: { enabled?: boolean } = {}) {
+  const normalised = normalizeCallFilters(filters);
   return useQuery({
-    queryKey: queryKeys.calls(programmeId),
+    queryKey: queryKeys.calls(normalised),
     queryFn: () =>
       apiClient<CallListResponse>('/api/v1/calls', {
-        searchParams: { programme_id: programmeId },
+        searchParams: callFiltersToSearchParams(normalised),
       }),
-    enabled: opts.enabled ?? Boolean(programmeId),
+    enabled: opts.enabled ?? true,
+    // Catalogue data doesn't change minute-to-minute; keep it cached
+    // long enough that flipping a single filter chip stays instant for
+    // the user.
+    staleTime: 60_000,
+  });
+}
+
+export function useCallDetail(callId: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.callDetail(callId),
+    queryFn: () => apiClient<CallDetail>(`/api/v1/calls/${callId}`),
+    enabled: opts.enabled ?? Boolean(callId),
+    staleTime: 60_000,
   });
 }
 

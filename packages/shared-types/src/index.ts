@@ -258,19 +258,72 @@ export type CallStatus = 'open' | 'closing_soon' | 'closed' | 'draft';
 export interface CallSummary {
   id: string;
   programme_id: string;
+  agency_id: string | null;
   source: CallSource;
   external_id: string;
   title: string;
   language: string;
   status: CallStatus;
   deadline: string | null;
+  opening_at: string | null;
   call_url: string | null;
   topic_keywords: string[];
+  sectors: string[];
+  geo_scope: string[];
+  eligibility_tags: string[];
+  budget_per_project_min_eur: number | null;
+  budget_per_project_max_eur: number | null;
+  trl_min: number | null;
+  trl_max: number | null;
+  funding_rate_pct: number | null;
+  partner_consortium_required: boolean | null;
   scraped_at: string;
 }
 
 export interface CallListResponse {
   calls: CallSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Detail-page payload — everything the API surfaces on one call. */
+export interface CallDetail extends CallSummary {
+  scope_summary: string | null;
+  call_text: string | null;
+  call_pdf_url: string | null;
+  application_form_url: string | null;
+  work_programme_pdf_url: string | null;
+  source_url_canonical: string | null;
+  budget_total_eur: number | null;
+  eligibility_summary: Record<string, unknown>;
+  raw_metadata: Record<string, unknown>;
+  historical_acceptance_rate: number | null;
+  last_seen_at: string;
+}
+
+export type CallSortKey = 'deadline' | 'budget' | 'relevance' | 'recency';
+
+/** Query-string params accepted by GET /api/v1/calls. */
+export interface CallSearchFilters {
+  q?: string;
+  programme_ids?: string[];
+  agency_ids?: string[];
+  source?: CallSource;
+  status_filter?: CallStatus;
+  deadline_after?: string;
+  deadline_before?: string;
+  budget_min_eur?: number;
+  budget_max_eur?: number;
+  trl_min?: number;
+  trl_max?: number;
+  sectors?: string[];
+  eligibility_tags?: string[];
+  geo_scope?: string[];
+  language?: 'tr' | 'en';
+  sort?: CallSortKey;
+  limit?: number;
+  offset?: number;
 }
 
 export interface CallCreate {

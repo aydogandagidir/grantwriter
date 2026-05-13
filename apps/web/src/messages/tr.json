@@ -45,6 +45,7 @@
   },
   "nav": {
     "dashboard": "Anasayfa",
+    "calls": "Açık Çağrılar",
     "proposals": "Başvurular",
     "settings": "Ayarlar",
     "llmConfig": "LLM Anahtarları",
@@ -195,6 +196,77 @@
     "edit": "Düzenle",
     "saveEdit": "Güncelle",
     "empty": "Henüz yorum yok."
+  },
+  "calls": {
+    "title": "Açık Çağrılar",
+    "subtitle": "Canlı fon kataloğu — projenize uygun çağrıyı bulmak için arayın, filtreleyin ve seçin.",
+    "searchPlaceholder": "Başlık, konu veya anahtar kelime ara…",
+    "loading": "Çağrılar yükleniyor…",
+    "empty": "Bu filtrelerle eşleşen çağrı yok. Kriterleri gevşetip tekrar deneyin.",
+    "errorTitle": "Çağrılar yüklenemedi",
+    "errorRetry": "Tekrar dene",
+    "resultCount": "{count, plural, =0 {Sonuç yok} =1 {1 sonuç} other {# sonuç}}",
+    "sort": {
+      "label": "Sırala",
+      "deadline": "Son tarih (yakın)",
+      "budget": "Bütçe (yüksek)",
+      "recency": "Son eklenenler",
+      "relevance": "İlgi"
+    },
+    "status": {
+      "open": "Açık",
+      "closing_soon": "Yakında kapanıyor",
+      "closed": "Kapandı",
+      "draft": "Taslak"
+    },
+    "card": {
+      "deadline": "Son tarih",
+      "noDeadline": "Sürekli açık",
+      "budget": "Bütçe",
+      "trl": "TRL",
+      "consortium": "Konsorsiyum şart",
+      "individual": "Bireysel başvuru kabul ediliyor",
+      "viewDetail": "Detayları gör",
+      "fundingRate": "%{rate} destek"
+    },
+    "filters": {
+      "title": "Filtreler",
+      "clearAll": "Hepsini temizle",
+      "programme": "Program",
+      "agency": "Alt program",
+      "deadlineAfter": "Son tarih sonrası",
+      "deadlineBefore": "Son tarih öncesi",
+      "budgetMin": "Min bütçe (€)",
+      "budgetMax": "Maks bütçe (€)",
+      "trlMin": "TRL min",
+      "trlMax": "TRL maks",
+      "sectors": "Sektörler",
+      "eligibility": "Uygunluk",
+      "geoScope": "Coğrafya",
+      "language": "Dil",
+      "status": "Durum",
+      "anyStatus": "Açık + yakında kapanıyor"
+    },
+    "pagination": {
+      "previous": "Önceki",
+      "next": "Sonraki",
+      "page": "Sayfa {current} / {total}"
+    },
+    "detail": {
+      "back": "Çağrılara dön",
+      "applyAt": "Funder sitesinde başvur",
+      "downloadWorkProgramme": "Work Programme indir (PDF)",
+      "applicationForm": "Başvuru formu",
+      "scopeSummary": "Kapsam",
+      "callText": "Tam metin",
+      "eligibility": "Uygunluk",
+      "keyDates": "Önemli tarihler",
+      "openingAt": "Açılış",
+      "deadline": "Son tarih",
+      "metadata": "Kaynak meta veri",
+      "notFoundTitle": "Çağrı bulunamadı",
+      "notFoundDescription": "Bu çağrı kaldırılmış olabilir veya hiç var olmadı."
+    }
   },
   "proposals": {
     "title": "Başvurular",

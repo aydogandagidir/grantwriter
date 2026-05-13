@@ -45,6 +45,7 @@
   },
   "nav": {
     "dashboard": "Dashboard",
+    "calls": "Open Calls",
     "proposals": "Proposals",
     "settings": "Settings",
     "llmConfig": "LLM Keys",
@@ -195,6 +196,77 @@
     "edit": "Edit",
     "saveEdit": "Update",
     "empty": "No comments yet."
+  },
+  "calls": {
+    "title": "Open Calls",
+    "subtitle": "Live funder catalogue — search, filter, and pick the call that matches your idea.",
+    "searchPlaceholder": "Search title, topic, or keyword…",
+    "loading": "Loading calls…",
+    "empty": "No calls match these filters. Loosen the criteria and try again.",
+    "errorTitle": "Couldn't load calls",
+    "errorRetry": "Retry",
+    "resultCount": "{count, plural, =0 {No matches} =1 {1 match} other {# matches}}",
+    "sort": {
+      "label": "Sort",
+      "deadline": "Deadline (soonest)",
+      "budget": "Budget (highest)",
+      "recency": "Recently added",
+      "relevance": "Relevance"
+    },
+    "status": {
+      "open": "Open",
+      "closing_soon": "Closing soon",
+      "closed": "Closed",
+      "draft": "Draft"
+    },
+    "card": {
+      "deadline": "Deadline",
+      "noDeadline": "Rolling",
+      "budget": "Budget",
+      "trl": "TRL",
+      "consortium": "Consortium required",
+      "individual": "Individuals welcome",
+      "viewDetail": "View details",
+      "fundingRate": "{rate}% funding"
+    },
+    "filters": {
+      "title": "Filters",
+      "clearAll": "Clear all",
+      "programme": "Programme",
+      "agency": "Sub-programme",
+      "deadlineAfter": "Deadline after",
+      "deadlineBefore": "Deadline before",
+      "budgetMin": "Budget min (€)",
+      "budgetMax": "Budget max (€)",
+      "trlMin": "TRL min",
+      "trlMax": "TRL max",
+      "sectors": "Sectors",
+      "eligibility": "Eligibility",
+      "geoScope": "Geography",
+      "language": "Language",
+      "status": "Status",
+      "anyStatus": "Open + closing soon"
+    },
+    "pagination": {
+      "previous": "Previous",
+      "next": "Next",
+      "page": "Page {current} of {total}"
+    },
+    "detail": {
+      "back": "Back to calls",
+      "applyAt": "Apply on funder site",
+      "downloadWorkProgramme": "Download work programme (PDF)",
+      "applicationForm": "Application form",
+      "scopeSummary": "Scope",
+      "callText": "Full text",
+      "eligibility": "Eligibility",
+      "keyDates": "Key dates",
+      "openingAt": "Opens",
+      "deadline": "Deadline",
+      "metadata": "Source metadata",
+      "notFoundTitle": "Call not found",
+      "notFoundDescription": "This call may have been removed or never existed."
+    }
   },
   "proposals": {
     "title": "Proposals",
