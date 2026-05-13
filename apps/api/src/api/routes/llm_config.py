@@ -47,17 +47,24 @@ from src.core.rate_limit import (
 from src.llm import key_vault
 from src.llm.base import (
     LLMMessage,
+    LLMProvider,
     LLMRequest,
     LLMRetryableError,
     LLMUnrecoverableError,
 )
 from src.llm.claude_provider import ClaudeProvider
+from src.llm.openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/tenant/llm-config", tags=["llm-config"])
 
-_TEST_MODEL = "claude-sonnet-4-6"
+# Cheapest model per provider that's reliably reachable on a free tier;
+# the test endpoint uses 5 max_tokens so the actual spend is ~$0.0001.
+_TEST_MODEL_BY_PROVIDER: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-4o-mini",
+}
 
 
 # ── Response / request models ──────────────────────────────────────────
@@ -124,13 +131,38 @@ class LLMConfigUpdate(BaseModel):
         return self
 
 
+class LLMConfigTestRequest(BaseModel):
+    """POST /test body. Picks which provider to probe.
+
+    The provider must be one the tenant has stored a key for; if the
+    column is empty the endpoint returns ``ok=False`` + a human-readable
+    "no key set" message rather than 404, so the UI can surface a
+    coherent error without a status-code branch.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    provider: Literal["anthropic", "openai"]
+
+
 class LLMConfigTestResult(BaseModel):
-    """POST /test response. ``valid`` is the only field the UI gates on."""
+    """POST /test response.
+
+    Field names mirror ``packages/shared-types/src/index.ts::
+    LlmConfigTestResponse`` so the FE consumes the body without an
+    adapter layer. ``ok`` is the only field the UI gates on; ``message``
+    is always human-readable; ``model_used`` carries the probe model on
+    success (``None`` on failure).
+
+    ``reason`` is the machine-readable failure code — kept so future
+    UIs / metrics can branch on it without parsing ``message``.
+    """
 
     model_config = ConfigDict(frozen=True)
 
-    valid: bool
-    model: str | None = None
+    ok: bool
+    model_used: str | None = None
+    message: str
     reason: Literal["no_key_set", "invalid_key", "transient_error"] | None = None
 
 
@@ -402,10 +434,18 @@ async def update_llm_config(
     return new_status
 
 
+def _provider_for(kind: Literal["anthropic", "openai"]) -> LLMProvider:
+    """Pick the SDK provider instance for the selected BYOK kind."""
+
+    if kind == "anthropic":
+        return ClaudeProvider()
+    return OpenAIProvider()
+
+
 @router.post(
     "/test",
     response_model=LLMConfigTestResult,
-    summary="Verify the stored Anthropic BYOK key with a 5-token Claude Sonnet ping",
+    summary="Verify a stored BYOK key with a 5-token ping to the chosen provider",
 )
 async def test_llm_config(
     response: Response,
@@ -415,21 +455,22 @@ async def test_llm_config(
     rate_check: Annotated[
         RateLimitDecision, Depends(rate_limit(LLM_CONFIG_TEST))
     ],
+    body: LLMConfigTestRequest,
 ) -> LLMConfigTestResult:
-    """Run one minimal Claude Sonnet call with the tenant's stored BYOK key.
+    """Run one minimal call against the chosen provider with the tenant's
+    stored BYOK key.
 
-    No ``tenant_usage_log`` row is written — this is a connectivity probe,
-    not a billable call. The decrypted key is held only on the local stack
-    for the duration of the provider call.
+    The probe spends ~$0.0001 and writes no ``tenant_usage_log`` row —
+    this is a connectivity check, not a billable call. The decrypted key
+    lives on the local stack only for the duration of the SDK call.
 
-    Rate-limited per docs/09 §8 — tighter than the saga endpoints because
-    each call makes a direct provider round-trip with no caching.
+    Rate-limited per docs/09 §8.
 
     Status codes:
-    - 200: key reachable. Body's ``valid`` field tells the UI the verdict.
-      ``valid=False, reason="no_key_set"`` means the tenant hasn't stored
-      one yet (still 200 — informational).
-    - 401: stored key was rejected by Anthropic (bad / revoked).
+    - 200: key reachable. Body's ``ok`` field is the verdict.
+      ``ok=False, reason="no_key_set"`` means the tenant hasn't stored
+      one for this provider yet (still 200 — informational).
+    - 401: stored key was rejected by the provider (bad / revoked).
     - 429: rate limit exceeded (5 / 60s); ``Retry-After`` header present.
     - 502: transient upstream error (rate limit, timeout, 5xx).
     - 503: server has no master encryption key configured.
@@ -438,6 +479,8 @@ async def test_llm_config(
     attach_rate_limit_headers(response, rate_check)
 
     tenant_id = await _resolve_tenant_id(conn, user_id=user_id)
+    provider_kind = body.provider
+    test_model = _TEST_MODEL_BY_PROVIDER[provider_kind]
 
     master_secret = settings.llm_master_encryption_key
     if master_secret is None:
@@ -449,7 +492,7 @@ async def test_llm_config(
     byok_key = await key_vault.get_byok_key(
         conn,
         tenant_id=tenant_id,
-        kind="anthropic",
+        kind=provider_kind,
         master_key=master_secret.get_secret_value(),
     )
     if byok_key is None:
@@ -458,12 +501,17 @@ async def test_llm_config(
             extra={
                 "tenant_id": str(tenant_id),
                 "user_id": str(user_id),
+                "provider": provider_kind,
                 "reason": "no_key_set",
             },
         )
-        return LLMConfigTestResult(valid=False, reason="no_key_set")
+        return LLMConfigTestResult(
+            ok=False,
+            reason="no_key_set",
+            message=f"No {provider_kind} API key is configured for this workspace.",
+        )
 
-    provider = ClaudeProvider()
+    provider = _provider_for(provider_kind)
     probe = LLMRequest(
         task="rerank",
         tenant_id=tenant_id,
@@ -476,35 +524,60 @@ async def test_llm_config(
     )
 
     try:
-        await provider.complete(probe, model=_TEST_MODEL, api_key=byok_key)
-    except LLMUnrecoverableError:
+        await provider.complete(probe, model=test_model, api_key=byok_key)
+    except LLMUnrecoverableError as exc:
         response.status_code = status.HTTP_401_UNAUTHORIZED
         logger.info(
             "llm_config_test_invalid",
-            extra={"tenant_id": str(tenant_id), "user_id": str(user_id)},
+            extra={
+                "tenant_id": str(tenant_id),
+                "user_id": str(user_id),
+                "provider": provider_kind,
+                "exc": str(exc),
+            },
         )
-        return LLMConfigTestResult(valid=False, reason="invalid_key")
-    except LLMRetryableError:
+        return LLMConfigTestResult(
+            ok=False,
+            reason="invalid_key",
+            message=f"The {provider_kind} API key was rejected by the provider "
+            "(check that it's not revoked or restricted).",
+        )
+    except LLMRetryableError as exc:
         response.status_code = status.HTTP_502_BAD_GATEWAY
         logger.warning(
             "llm_config_test_transient",
-            extra={"tenant_id": str(tenant_id), "user_id": str(user_id)},
+            extra={
+                "tenant_id": str(tenant_id),
+                "user_id": str(user_id),
+                "provider": provider_kind,
+                "exc": str(exc),
+            },
         )
-        return LLMConfigTestResult(valid=False, reason="transient_error")
+        return LLMConfigTestResult(
+            ok=False,
+            reason="transient_error",
+            message=f"Provider {provider_kind} is temporarily unreachable. Try again in a moment.",
+        )
 
     logger.info(
         "llm_config_test_ok",
         extra={
             "tenant_id": str(tenant_id),
             "user_id": str(user_id),
-            "model": _TEST_MODEL,
+            "provider": provider_kind,
+            "model": test_model,
         },
     )
-    return LLMConfigTestResult(valid=True, model=_TEST_MODEL)
+    return LLMConfigTestResult(
+        ok=True,
+        model_used=test_model,
+        message=f"Connected via {test_model}.",
+    )
 
 
 __all__ = [
     "LLMConfigStatus",
+    "LLMConfigTestRequest",
     "LLMConfigTestResult",
     "LLMConfigUpdate",
     "router",
