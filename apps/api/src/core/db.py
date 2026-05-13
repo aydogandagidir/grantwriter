@@ -7,16 +7,20 @@ The pool is created at app startup (see `src/main.py` lifespan) and stored on
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
 
 import asyncpg
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 from pgvector.asyncpg import register_vector
 
 from src.core.config import get_settings
 
-if TYPE_CHECKING:
-    from fastapi import Request
+# NOTE: ``Request`` MUST be imported at runtime (not under TYPE_CHECKING) —
+# FastAPI inspects the parameter annotation of ``get_db`` to recognise it
+# as the special ``Request`` injection. With a string-only annotation
+# (``from __future__ import annotations`` + TYPE_CHECKING import), FastAPI
+# falls back to treating ``request`` as a query parameter and every
+# endpoint that depends on ``get_db`` 422s with
+# ``loc=["query","request"], msg="Field required"``.
 
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
