@@ -5,6 +5,7 @@ import { useFormatter, useTranslations } from 'next-intl';
 
 import type { CallDetail } from '@bluedev/shared-types';
 
+import { CallDiscoveryPanel } from '@/app/[locale]/(app)/calls/[id]/call-discovery-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -125,6 +126,8 @@ export function CallDetailView({ callId }: { callId: string }) {
           ) : null}
         </div>
       </header>
+
+      <CallDiscoveryPanel callId={callId} />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>

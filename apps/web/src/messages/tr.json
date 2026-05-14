@@ -269,6 +269,24 @@
       "metadata": "Kaynak meta veri",
       "notFoundTitle": "Çağrı bulunamadı",
       "notFoundDescription": "Bu çağrı kaldırılmış olabilir veya hiç var olmadı."
+    },
+    "discovery": {
+      "generateCta": "Bu çağrı için proje fikirleri üret",
+      "generating": "Fikirler üretiliyor… birkaç saniye sürer",
+      "generatedTitle": "Bu çağrı için proje fikirleri",
+      "fromCache": "Önbellekten",
+      "regenerate": "Yeniden üret",
+      "alignment": "%{score} uyum",
+      "consortium": "Önerilen konsorsiyum",
+      "eligibilityCta": "Uygunluğumu kontrol et",
+      "checking": "Kontrol ediliyor…",
+      "eligibilityTitle": "Uygunluk kontrolü",
+      "confidence": "%{score} güven",
+      "verdict": {
+        "ELIGIBLE": "Uygun",
+        "CONDITIONAL": "Koşullu",
+        "NOT_ELIGIBLE": "Uygun değil"
+      }
     }
   },
   "discover": {

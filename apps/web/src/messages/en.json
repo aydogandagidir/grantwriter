@@ -269,6 +269,24 @@
       "metadata": "Source metadata",
       "notFoundTitle": "Call not found",
       "notFoundDescription": "This call may have been removed or never existed."
+    },
+    "discovery": {
+      "generateCta": "Generate project ideas for this call",
+      "generating": "Generating ideas… this takes a few seconds",
+      "generatedTitle": "Project ideas for this call",
+      "fromCache": "Cached",
+      "regenerate": "Regenerate",
+      "alignment": "{score}% aligned",
+      "consortium": "Suggested consortium",
+      "eligibilityCta": "Check my eligibility",
+      "checking": "Checking…",
+      "eligibilityTitle": "Eligibility check",
+      "confidence": "{score}% confidence",
+      "verdict": {
+        "ELIGIBLE": "Eligible",
+        "CONDITIONAL": "Conditional",
+        "NOT_ELIGIBLE": "Not eligible"
+      }
     }
   },
   "discover": {
