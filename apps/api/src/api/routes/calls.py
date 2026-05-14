@@ -21,13 +21,17 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 
+from src.agents.eligibility_checker import EligibilityChecker
+from src.agents.idea_generator import IdeaGenerator
 from src.core.audit import write_audit_event
 from src.core.auth import CurrentUserId
 from src.core.db import get_db
+from src.core.llm_dep import get_llm_router
 from src.core.tenant import resolve_tenant_and_role
+from src.llm.router import LLMRouter
 from src.scrapers.base import CallSource
 
 logger = logging.getLogger(__name__)
@@ -128,6 +132,65 @@ class CallDetail(CallSummary):
     raw_metadata: dict[str, Any]
     historical_acceptance_rate: float | None
     last_seen_at: datetime
+
+
+# ── Faz 2: call → idea generation + eligibility ────────────────────────
+
+
+class GenerateIdeasRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    n_ideas: int = 3
+    use_org_profile: bool = True
+    """When true, biases the slate toward the caller's org profile (and
+    skips the shared cache — profile-biased output is tenant-specific)."""
+    force_refresh: bool = False
+
+
+class GeneratedIdeaOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    title: str
+    abstract: str
+    technology_angle: str
+    impact_thesis: str
+    est_budget_eur_min: float | None
+    est_budget_eur_max: float | None
+    est_trl: int | None
+    suggested_consortium_type: str
+    alignment_score: float
+    distinctiveness_score: float | None
+
+
+class GenerateIdeasResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    call_id: UUID
+    ideas: list[GeneratedIdeaOut]
+    generated_at: str
+    generator_version: str
+    from_cache: bool
+
+
+class EligibilityCheckOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    rule: str
+    status: Literal["pass", "warn", "fail"]
+    message_tr: str
+    message_en: str
+
+
+class EligibilityReportOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    verdict: Literal["ELIGIBLE", "CONDITIONAL", "NOT_ELIGIBLE"]
+    checks: list[EligibilityCheckOut]
+    blockers: list[str]
+    warnings: list[str]
+    confidence: float
+    model_version: str
+    checked_at: str
 
 
 # ── Routes ─────────────────────────────────────────────────────────────
@@ -446,6 +509,142 @@ async def create_call(
         },
     )
     return _row_to_summary(row)
+
+
+@router.post(
+    "/{call_id}/generate-ideas",
+    response_model=GenerateIdeasResponse,
+    summary="Generate project ideas tailored to this call",
+)
+async def generate_ideas_for_call(
+    request: Request,
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    llm_router: Annotated[LLMRouter, Depends(get_llm_router)],
+    call_id: UUID,
+    body: GenerateIdeasRequest,
+) -> GenerateIdeasResponse:
+    """Run :class:`IdeaGenerator` for ``call_id``.
+
+    With ``use_org_profile=True`` the slate is biased toward the
+    caller's organization profile and the shared cache is bypassed
+    (profile-biased output is tenant-specific). With ``False`` (or no
+    profile on file) a generic slate is produced and cached for the
+    next tenant browsing the same call.
+    """
+
+    call_exists = await conn.fetchval(
+        "SELECT 1 FROM calls WHERE id = $1", call_id
+    )
+    if call_exists is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"call {call_id} not found"
+        )
+
+    tenant_id, _ = await resolve_tenant_and_role(conn, user_id=user_id)
+    pool: asyncpg.Pool | None = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not configured",
+        )
+
+    generator = IdeaGenerator(pool=pool, router=llm_router, tenant_id=tenant_id)
+    result = await generator.generate(
+        call_id,
+        n_ideas=body.n_ideas,
+        org_profile_tenant_id=tenant_id if body.use_org_profile else None,
+        force_refresh=body.force_refresh,
+    )
+
+    logger.info(
+        "call_ideas_generated",
+        extra={
+            "call_id": str(call_id),
+            "tenant_id": str(tenant_id),
+            "idea_count": len(result.ideas),
+            "from_cache": result.from_cache,
+        },
+    )
+    return GenerateIdeasResponse(
+        call_id=result.call_id,
+        ideas=[
+            GeneratedIdeaOut(
+                title=idea.title,
+                abstract=idea.abstract,
+                technology_angle=idea.technology_angle,
+                impact_thesis=idea.impact_thesis,
+                est_budget_eur_min=idea.est_budget_eur_min,
+                est_budget_eur_max=idea.est_budget_eur_max,
+                est_trl=idea.est_trl,
+                suggested_consortium_type=idea.suggested_consortium_type,
+                alignment_score=idea.alignment_score,
+                distinctiveness_score=idea.distinctiveness_score,
+            )
+            for idea in result.ideas
+        ],
+        generated_at=result.generated_at,
+        generator_version=result.generator_version,
+        from_cache=result.from_cache,
+    )
+
+
+@router.get(
+    "/{call_id}/eligibility",
+    response_model=EligibilityReportOut,
+    summary="Check the caller's organization eligibility for this call",
+)
+async def check_call_eligibility(
+    request: Request,
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    call_id: UUID,
+) -> EligibilityReportOut:
+    """Run the rule-based :class:`EligibilityChecker` for the caller's
+    tenant against ``call_id``. A missing org profile is not an error —
+    it just yields warnings rather than confirmations."""
+
+    tenant_id, _ = await resolve_tenant_and_role(conn, user_id=user_id)
+    pool: asyncpg.Pool | None = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not configured",
+        )
+
+    checker = EligibilityChecker(pool=pool, tenant_id=tenant_id)
+    try:
+        report = await checker.check(org_tenant_id=tenant_id, call_id=call_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+    logger.info(
+        "call_eligibility_checked",
+        extra={
+            "call_id": str(call_id),
+            "tenant_id": str(tenant_id),
+            "verdict": report.verdict,
+        },
+    )
+    return EligibilityReportOut(
+        verdict=report.verdict,
+        checks=[
+            EligibilityCheckOut(
+                rule=c.rule,
+                status=c.status,
+                message_tr=c.message_tr,
+                message_en=c.message_en,
+            )
+            for c in report.checks
+        ],
+        blockers=report.blockers,
+        warnings=report.warnings,
+        confidence=report.confidence,
+        model_version=report.model_version,
+        checked_at=report.checked_at,
+    )
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
