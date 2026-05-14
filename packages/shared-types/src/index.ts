@@ -326,6 +326,126 @@ export interface CallSearchFilters {
   offset?: number;
 }
 
+// ── Project ideas + bidirectional matching (Faz 2) ───────────────────────
+
+export type IdeaStatus = 'draft' | 'active' | 'archived';
+export type IdeaSource = 'user_input' | 'generated_from_call' | 'imported';
+
+export interface IdeaCreate {
+  title: string;
+  abstract: string;
+  technology_angle?: string;
+  target_market?: string;
+  trl_estimate?: number;
+  budget_estimate_eur_min?: number;
+  budget_estimate_eur_max?: number;
+  team_size_estimate?: number;
+  sectors?: string[];
+  keywords?: string[];
+  source?: IdeaSource;
+  seed_call_id?: string;
+}
+
+export interface IdeaSummary {
+  id: string;
+  title: string;
+  abstract: string;
+  technology_angle: string | null;
+  target_market: string | null;
+  trl_estimate: number | null;
+  budget_estimate_eur_min: number | null;
+  budget_estimate_eur_max: number | null;
+  team_size_estimate: number | null;
+  sectors: string[];
+  keywords: string[];
+  distinctiveness_score: number | null;
+  status: IdeaStatus;
+  source: IdeaSource;
+  seed_call_id: string | null;
+  created_at: string;
+}
+
+export interface IdeaListResponse {
+  ideas: IdeaSummary[];
+  total: number;
+}
+
+/** One ranked call in an idea-match response, with score breakdown. */
+export interface CallMatchOut {
+  call_id: string;
+  total_score: number;
+  semantic_score: number;
+  keyword_overlap_score: number;
+  sector_score: number;
+  trl_fit_score: number;
+  budget_fit_score: number;
+  rationale_tr: string;
+  rationale_en: string;
+  identified_gaps: string[];
+  call_title: string | null;
+  programme_id: string | null;
+  deadline: string | null;
+}
+
+export interface IdeaMatchResponse {
+  idea_id: string;
+  matches: CallMatchOut[];
+  filter_stats: Record<string, number>;
+  computed_at: string;
+  model_version: string;
+}
+
+// ── Organization profile (Faz 2) ─────────────────────────────────────────
+
+export type EntityType =
+  | 'individual'
+  | 'sme'
+  | 'university'
+  | 'large_corp'
+  | 'ngo'
+  | 'research_org';
+
+export interface OrganizationProfileUpsert {
+  legal_name?: string;
+  entity_type?: EntityType;
+  country?: string;
+  nuts_region?: string;
+  nace_codes?: string[];
+  sectors?: string[];
+  team_size?: number;
+  annual_revenue_eur?: number;
+  founded_year?: number;
+  technology_areas?: string[];
+  trl_current?: number;
+  trl_target?: number;
+  expertise_keywords?: string[];
+  past_projects?: Record<string, unknown>[];
+  funding_history?: Record<string, unknown>[];
+  preferred_languages?: string[];
+}
+
+export interface OrganizationProfile {
+  tenant_id: string;
+  legal_name: string | null;
+  entity_type: EntityType | null;
+  country: string | null;
+  nuts_region: string | null;
+  nace_codes: string[];
+  sectors: string[];
+  team_size: number | null;
+  annual_revenue_eur: number | null;
+  founded_year: number | null;
+  technology_areas: string[];
+  trl_current: number | null;
+  trl_target: number | null;
+  expertise_keywords: string[];
+  past_projects: Record<string, unknown>[];
+  funding_history: Record<string, unknown>[];
+  preferred_languages: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CallCreate {
   programme_id: string;
   external_id: string;

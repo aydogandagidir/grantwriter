@@ -10,6 +10,11 @@ SQL + LLM round-trip) gets its own integration suite gated on
 from __future__ import annotations
 
 from src.agents.idea_matcher import (
+    WEIGHT_BUDGET_FIT,
+    WEIGHT_KEYWORD,
+    WEIGHT_SECTOR,
+    WEIGHT_SEMANTIC,
+    WEIGHT_TRL_FIT,
     _budget_fit,
     _cosine,
     _jaccard,
@@ -17,13 +22,7 @@ from src.agents.idea_matcher import (
     _parse_rerank_response,
     _soft_score,
     _trl_fit,
-    WEIGHT_BUDGET_FIT,
-    WEIGHT_KEYWORD,
-    WEIGHT_SECTOR,
-    WEIGHT_SEMANTIC,
-    WEIGHT_TRL_FIT,
 )
-
 
 # ── _norm_set + _jaccard ─────────────────────────────────────────────────
 
