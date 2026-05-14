@@ -20,6 +20,10 @@ import type {
   CommentRecord,
   ExportEnqueued,
   GenerateEnqueued,
+  IdeaCreate,
+  IdeaListResponse,
+  IdeaMatchResponse,
+  IdeaSummary,
   InvitationCreated,
   InvitationListResponse,
   InvitationPreview,
@@ -27,6 +31,8 @@ import type {
   LlmConfigTestResponse,
   MeResponse,
   MemberListResponse,
+  OrganizationProfile,
+  OrganizationProfileUpsert,
   ProgrammeListResponse,
   ProposalCreate,
   ProposalDetail,
@@ -36,6 +42,42 @@ import type {
   ValidationReport,
   VersionListResponse,
 } from '@bluedev/shared-types';
+
+/** Response shape of POST /api/v1/calls/{id}/generate-ideas. */
+export interface GenerateIdeasResponse {
+  call_id: string;
+  ideas: Array<{
+    title: string;
+    abstract: string;
+    technology_angle: string;
+    impact_thesis: string;
+    est_budget_eur_min: number | null;
+    est_budget_eur_max: number | null;
+    est_trl: number | null;
+    suggested_consortium_type: string;
+    alignment_score: number;
+    distinctiveness_score: number | null;
+  }>;
+  generated_at: string;
+  generator_version: string;
+  from_cache: boolean;
+}
+
+/** Response shape of GET /api/v1/calls/{id}/eligibility. */
+export interface EligibilityReport {
+  verdict: 'ELIGIBLE' | 'CONDITIONAL' | 'NOT_ELIGIBLE';
+  checks: Array<{
+    rule: string;
+    status: 'pass' | 'warn' | 'fail';
+    message_tr: string;
+    message_en: string;
+  }>;
+  blockers: string[];
+  warnings: string[];
+  confidence: number;
+  model_version: string;
+  checked_at: string;
+}
 
 import { apiClient } from '@/lib/api/client';
 
@@ -59,6 +101,11 @@ export const queryKeys = {
   calls: (filters?: CallSearchFilters) =>
     ['calls', filters ? normalizeCallFilters(filters) : 'all'] as const,
   callDetail: (id: string) => ['calls', 'detail', id] as const,
+  callEligibility: (id: string) => ['calls', 'eligibility', id] as const,
+  ideas: ['ideas'] as const,
+  ideaDetail: (id: string) => ['ideas', 'detail', id] as const,
+  ideaMatches: (id: string) => ['ideas', 'matches', id] as const,
+  organizationProfile: ['organization', 'profile'] as const,
   proposalList: ['proposals'] as const,
   proposal: (id: string) => ['proposals', id] as const,
 };
@@ -456,6 +503,126 @@ export function useCreateCall() {
     mutationFn: (input: CallCreate) =>
       apiClient('/api/v1/calls', { method: 'POST', body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['calls'] }),
+  });
+}
+
+/** Generate project ideas tailored to one call (Faz 2). */
+export function useGenerateIdeasForCall() {
+  return useMutation({
+    mutationFn: ({
+      callId,
+      nIdeas = 3,
+      useOrgProfile = true,
+      forceRefresh = false,
+    }: {
+      callId: string;
+      nIdeas?: number;
+      useOrgProfile?: boolean;
+      forceRefresh?: boolean;
+    }) =>
+      apiClient<GenerateIdeasResponse>(
+        `/api/v1/calls/${callId}/generate-ideas`,
+        {
+          method: 'POST',
+          body: {
+            n_ideas: nIdeas,
+            use_org_profile: useOrgProfile,
+            force_refresh: forceRefresh,
+          },
+        },
+      ),
+  });
+}
+
+/** Rule-based eligibility check for the caller's org against a call. */
+export function useCallEligibility(callId: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.callEligibility(callId),
+    queryFn: () =>
+      apiClient<EligibilityReport>(`/api/v1/calls/${callId}/eligibility`),
+    enabled: opts.enabled ?? Boolean(callId),
+    staleTime: 60_000,
+  });
+}
+
+// ── Project ideas + bidirectional matching (Faz 2) ──────────────────────
+
+export function useIdeas(opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.ideas,
+    queryFn: () => apiClient<IdeaListResponse>('/api/v1/ideas'),
+    enabled: opts.enabled ?? true,
+    staleTime: 30_000,
+  });
+}
+
+export function useIdeaDetail(ideaId: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.ideaDetail(ideaId),
+    queryFn: () => apiClient<IdeaSummary>(`/api/v1/ideas/${ideaId}`),
+    enabled: opts.enabled ?? Boolean(ideaId),
+  });
+}
+
+export function useCreateIdea() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: IdeaCreate) =>
+      apiClient<IdeaSummary>('/api/v1/ideas', { method: 'POST', body: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.ideas }),
+  });
+}
+
+/** Run the matcher for an idea; persists + returns the ranked calls. */
+export function useMatchIdea() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ideaId, topK = 5 }: { ideaId: string; topK?: number }) =>
+      apiClient<IdeaMatchResponse>(`/api/v1/ideas/${ideaId}/match`, {
+        method: 'POST',
+        searchParams: { top_k: topK },
+      }),
+    onSuccess: (_data, { ideaId }) =>
+      qc.invalidateQueries({ queryKey: queryKeys.ideaMatches(ideaId) }),
+  });
+}
+
+/** Read the cached match list for an idea (empty until the matcher runs). */
+export function useIdeaMatches(ideaId: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.ideaMatches(ideaId),
+    queryFn: () =>
+      apiClient<IdeaMatchResponse>(`/api/v1/ideas/${ideaId}/matches`),
+    enabled: opts.enabled ?? Boolean(ideaId),
+  });
+}
+
+// ── Organization profile (Faz 2) ────────────────────────────────────────
+
+export function useOrganizationProfile(opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.organizationProfile,
+    queryFn: () =>
+      apiClient<OrganizationProfile>('/api/v1/organizations/profile'),
+    enabled: opts.enabled ?? true,
+    // 404 means "no profile yet" — a real product state, not an error
+    // to retry. The consuming component checks isError + treats it as
+    // "show the empty form".
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpsertOrganizationProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: OrganizationProfileUpsert) =>
+      apiClient<OrganizationProfile>('/api/v1/organizations/profile', {
+        method: 'PUT',
+        body: input,
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: queryKeys.organizationProfile }),
   });
 }
 

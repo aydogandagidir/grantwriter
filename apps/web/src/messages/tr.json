@@ -45,8 +45,11 @@
   },
   "nav": {
     "dashboard": "Anasayfa",
+    "discover": "Keşfet",
     "calls": "Açık Çağrılar",
+    "ideas": "Fikirlerim",
     "proposals": "Başvurular",
+    "organization": "Organizasyon",
     "settings": "Ayarlar",
     "llmConfig": "LLM Anahtarları",
     "members": "Üyeler",
@@ -266,6 +269,95 @@
       "metadata": "Kaynak meta veri",
       "notFoundTitle": "Çağrı bulunamadı",
       "notFoundDescription": "Bu çağrı kaldırılmış olabilir veya hiç var olmadı."
+    }
+  },
+  "discover": {
+    "title": "Fon Keşfi",
+    "subtitle": "İki giriş yolu: fikrinizden başlayın ya da açık bir çağrıdan.",
+    "ideaFirst": {
+      "title": "Bir fikrim var",
+      "description": "Projenizi anlatın — size en uygun açık çağrıları, her eşleşme için bir gerekçeyle sıralayalım.",
+      "cta": "Fikrimi gir"
+    },
+    "callFirst": {
+      "title": "Açık çağrılara göz at",
+      "description": "Canlı fon kataloğunu keşfedin. Beğendiğiniz bir çağrı mı buldunuz? Ona özel proje fikirleri üretelim.",
+      "cta": "Çağrılara göz at"
+    }
+  },
+  "ideas": {
+    "listTitle": "Fikirlerim",
+    "listSubtitle": "Girdiğiniz proje fikirleri ve çağrı eşleşmeleri.",
+    "empty": "Henüz fikir yok — eşleşen çağrıları bulmak için ilk projenizi anlatın.",
+    "newIdea": "Yeni fikir",
+    "new": {
+      "title": "Proje fikrinizi anlatın",
+      "subtitle": "Özet ne kadar somut olursa, eşleşmeler o kadar isabetli olur.",
+      "titleLabel": "Proje başlığı",
+      "titlePlaceholder": "örn. Fabrika PLC'leri için uç-yapay zekâ kestirimci bakım",
+      "abstractLabel": "Özet",
+      "abstractPlaceholder": "Proje ne yapıyor, teknik yaklaşım nedir, hangi sonucu hedefliyorsunuz? 120-400 kelime en iyisi.",
+      "technologyAngleLabel": "Teknoloji açısı (opsiyonel)",
+      "targetMarketLabel": "Hedef pazar (opsiyonel)",
+      "trlLabel": "Mevcut TRL (opsiyonel)",
+      "budgetMinLabel": "Min bütçe € (opsiyonel)",
+      "budgetMaxLabel": "Maks bütçe € (opsiyonel)",
+      "sectorsLabel": "Sektörler (virgülle ayrılmış, opsiyonel)",
+      "keywordsLabel": "Anahtar kelimeler (virgülle ayrılmış, opsiyonel)",
+      "submit": "Eşleşen çağrıları bul",
+      "submitting": "Fikir kaydediliyor…"
+    },
+    "matches": {
+      "title": "Eşleşen çağrılar",
+      "subtitle": "Fikriniz için sıralanmış açık çağrılar — skor kırılımı ve kapatılması gereken boşluklarla.",
+      "runMatch": "Eşleştirmeyi çalıştır",
+      "rerun": "Eşleştirmeyi tekrarla",
+      "matching": "Eşleştiriliyor… birkaç saniye sürer",
+      "empty": "Henüz eşleşme yok. Bu fikir için açık çağrıları sıralamak üzere eşleştirmeyi çalıştırın.",
+      "noResults": "Eşleştirici, sıkı filtreleri geçen açık çağrı bulamadı. Fikrinizin sektörlerini veya bütçe bandını genişletip tekrar deneyin.",
+      "scoreBreakdown": "Skor kırılımı",
+      "semantic": "Anlamsal",
+      "keyword": "Anahtar kelime",
+      "sector": "Sektör",
+      "trlFit": "TRL uyumu",
+      "budgetFit": "Bütçe uyumu",
+      "whyMatch": "Neden bu eşleşme?",
+      "gaps": "Kapatılacak boşluklar",
+      "viewCall": "Çağrıyı gör",
+      "matchScore": "%{score} eşleşme"
+    }
+  },
+  "organization": {
+    "title": "Organizasyon Profili",
+    "subtitle": "Uygunluk kontrollerini besler ve çağrı eşleşmelerinizi keskinleştirir. Doldurabildiğinizi doldurun — form aşamalı kaydeder.",
+    "loading": "Profil yükleniyor…",
+    "emptyHint": "Henüz profil yok. Uygunluğu kontrol edebilmemiz ve eşleşmeleri uyarlayabilmemiz için organizasyon bilgilerinizi ekleyin.",
+    "saved": "Profil kaydedildi",
+    "save": "Profili kaydet",
+    "saving": "Kaydediliyor…",
+    "fields": {
+      "legalName": "Yasal ünvan",
+      "entityType": "Organizasyon türü",
+      "country": "Ülke (ISO kodu, örn. TR)",
+      "nutsRegion": "NUTS bölgesi (opsiyonel)",
+      "naceCodes": "NACE kodları (virgülle ayrılmış)",
+      "sectors": "Sektörler (virgülle ayrılmış)",
+      "teamSize": "Ekip büyüklüğü",
+      "annualRevenue": "Yıllık ciro €",
+      "foundedYear": "Kuruluş yılı",
+      "technologyAreas": "Teknoloji alanları (virgülle ayrılmış)",
+      "trlCurrent": "Mevcut TRL",
+      "trlTarget": "Hedef TRL",
+      "expertiseKeywords": "Uzmanlık anahtar kelimeleri (virgülle ayrılmış)",
+      "preferredLanguages": "Tercih edilen diller (virgülle ayrılmış)"
+    },
+    "entityTypes": {
+      "individual": "Bireysel",
+      "sme": "KOBİ",
+      "university": "Üniversite",
+      "large_corp": "Büyük şirket",
+      "ngo": "STK / Kâr amacı gütmeyen",
+      "research_org": "Araştırma kuruluşu"
     }
   },
   "proposals": {

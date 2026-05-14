@@ -1,14 +1,17 @@
 'use client';
 
 import {
+  Building2,
   Compass,
   FileText,
   Home,
   KeyRound,
+  Lightbulb,
   Mail,
   Receipt,
   ScrollText,
   Settings,
+  Sparkles,
   TrendingUp,
   Users,
 } from 'lucide-react';
@@ -27,8 +30,11 @@ export interface NavItem {
 
 export const PRIMARY_NAV: NavItem[] = [
   { href: '/dashboard', i18nKey: 'dashboard', icon: Home },
+  { href: '/discover', i18nKey: 'discover', icon: Sparkles },
   { href: '/calls', i18nKey: 'calls', icon: Compass },
+  { href: '/ideas', i18nKey: 'ideas', icon: Lightbulb },
   { href: '/proposals', i18nKey: 'proposals', icon: FileText },
+  { href: '/organization', i18nKey: 'organization', icon: Building2 },
 ];
 
 export const SETTINGS_NAV: NavItem[] = [
