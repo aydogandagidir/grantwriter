@@ -12,12 +12,18 @@ import type {
   AuditListResponse,
   BillingStatus,
   CallCreate,
+  CallDetail,
   CallListResponse,
+  CallSearchFilters,
   CheckoutResponse,
   CommentListResponse,
   CommentRecord,
   ExportEnqueued,
   GenerateEnqueued,
+  IdeaCreate,
+  IdeaListResponse,
+  IdeaMatchResponse,
+  IdeaSummary,
   InvitationCreated,
   InvitationListResponse,
   InvitationPreview,
@@ -25,6 +31,8 @@ import type {
   LlmConfigTestResponse,
   MeResponse,
   MemberListResponse,
+  OrganizationProfile,
+  OrganizationProfileUpsert,
   ProgrammeListResponse,
   ProposalCreate,
   ProposalDetail,
@@ -34,6 +42,42 @@ import type {
   ValidationReport,
   VersionListResponse,
 } from '@bluedev/shared-types';
+
+/** Response shape of POST /api/v1/calls/{id}/generate-ideas. */
+export interface GenerateIdeasResponse {
+  call_id: string;
+  ideas: Array<{
+    title: string;
+    abstract: string;
+    technology_angle: string;
+    impact_thesis: string;
+    est_budget_eur_min: number | null;
+    est_budget_eur_max: number | null;
+    est_trl: number | null;
+    suggested_consortium_type: string;
+    alignment_score: number;
+    distinctiveness_score: number | null;
+  }>;
+  generated_at: string;
+  generator_version: string;
+  from_cache: boolean;
+}
+
+/** Response shape of GET /api/v1/calls/{id}/eligibility. */
+export interface EligibilityReport {
+  verdict: 'ELIGIBLE' | 'CONDITIONAL' | 'NOT_ELIGIBLE';
+  checks: Array<{
+    rule: string;
+    status: 'pass' | 'warn' | 'fail';
+    message_tr: string;
+    message_en: string;
+  }>;
+  blockers: string[];
+  warnings: string[];
+  confidence: number;
+  model_version: string;
+  checked_at: string;
+}
 
 import { apiClient } from '@/lib/api/client';
 
@@ -54,7 +98,14 @@ export const queryKeys = {
     ['comments', proposalId, opts ?? {}] as const,
   validation: (proposalId: string) => ['validation', proposalId] as const,
   programmes: ['programmes'] as const,
-  calls: (programmeId?: string) => ['calls', programmeId ?? 'all'] as const,
+  calls: (filters?: CallSearchFilters) =>
+    ['calls', filters ? normalizeCallFilters(filters) : 'all'] as const,
+  callDetail: (id: string) => ['calls', 'detail', id] as const,
+  callEligibility: (id: string) => ['calls', 'eligibility', id] as const,
+  ideas: ['ideas'] as const,
+  ideaDetail: (id: string) => ['ideas', 'detail', id] as const,
+  ideaMatches: (id: string) => ['ideas', 'matches', id] as const,
+  organizationProfile: ['organization', 'profile'] as const,
   proposalList: ['proposals'] as const,
   proposal: (id: string) => ['proposals', id] as const,
 };
@@ -369,14 +420,80 @@ export function useProgrammes() {
 
 // ── Calls catalog ───────────────────────────────────────────────────────
 
-export function useCalls(programmeId?: string, opts: { enabled?: boolean } = {}) {
+/**
+ * Normalise filters into a stable query-key payload + searchParams.
+ *
+ * Two arrays with the same members but different ordering must produce
+ * the same cache key, otherwise `useCalls` would re-fetch every time the
+ * user toggles a chip in the same set. We sort each array and drop
+ * empties so `{ sectors: ['J62','C29'] }` and `{ sectors: ['C29','J62'] }`
+ * cache-hit each other.
+ */
+function normalizeCallFilters(filters: CallSearchFilters): CallSearchFilters {
+  const out: CallSearchFilters = {};
+  for (const key of Object.keys(filters) as (keyof CallSearchFilters)[]) {
+    const value = filters[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      (out as Record<string, unknown>)[key] = [...value].sort();
+    } else {
+      (out as Record<string, unknown>)[key] = value;
+    }
+  }
+  return out;
+}
+
+function callFiltersToSearchParams(
+  filters: CallSearchFilters,
+): Record<string, string | number | string[] | undefined> {
+  // apiClient's URLSearchParams builder accepts plain strings + arrays.
+  // Drop fields the API treats as "not specified".
+  const params: Record<string, string | number | string[] | undefined> = {};
+  if (filters.q?.trim()) params.q = filters.q.trim();
+  if (filters.programme_ids?.length) params.programme_ids = filters.programme_ids;
+  if (filters.agency_ids?.length) params.agency_ids = filters.agency_ids;
+  if (filters.source) params.source = filters.source;
+  if (filters.status_filter) params.status_filter = filters.status_filter;
+  if (filters.deadline_after) params.deadline_after = filters.deadline_after;
+  if (filters.deadline_before) params.deadline_before = filters.deadline_before;
+  if (filters.budget_min_eur != null) params.budget_min_eur = filters.budget_min_eur;
+  if (filters.budget_max_eur != null) params.budget_max_eur = filters.budget_max_eur;
+  if (filters.trl_min != null) params.trl_min = filters.trl_min;
+  if (filters.trl_max != null) params.trl_max = filters.trl_max;
+  if (filters.sectors?.length) params.sectors = filters.sectors;
+  if (filters.eligibility_tags?.length) params.eligibility_tags = filters.eligibility_tags;
+  if (filters.geo_scope?.length) params.geo_scope = filters.geo_scope;
+  if (filters.language) params.language = filters.language;
+  if (filters.sort) params.sort = filters.sort;
+  if (filters.limit != null) params.limit = filters.limit;
+  if (filters.offset != null) params.offset = filters.offset;
+  return params;
+}
+
+export function useCalls(filters: CallSearchFilters = {}, opts: { enabled?: boolean } = {}) {
+  const normalised = normalizeCallFilters(filters);
   return useQuery({
-    queryKey: queryKeys.calls(programmeId),
+    queryKey: queryKeys.calls(normalised),
     queryFn: () =>
       apiClient<CallListResponse>('/api/v1/calls', {
-        searchParams: { programme_id: programmeId },
+        searchParams: callFiltersToSearchParams(normalised),
       }),
-    enabled: opts.enabled ?? Boolean(programmeId),
+    enabled: opts.enabled ?? true,
+    // Catalogue data doesn't change minute-to-minute; keep it cached
+    // long enough that flipping a single filter chip stays instant for
+    // the user.
+    staleTime: 60_000,
+  });
+}
+
+export function useCallDetail(callId: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.callDetail(callId),
+    queryFn: () => apiClient<CallDetail>(`/api/v1/calls/${callId}`),
+    enabled: opts.enabled ?? Boolean(callId),
+    staleTime: 60_000,
   });
 }
 
@@ -386,6 +503,126 @@ export function useCreateCall() {
     mutationFn: (input: CallCreate) =>
       apiClient('/api/v1/calls', { method: 'POST', body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['calls'] }),
+  });
+}
+
+/** Generate project ideas tailored to one call (Faz 2). */
+export function useGenerateIdeasForCall() {
+  return useMutation({
+    mutationFn: ({
+      callId,
+      nIdeas = 3,
+      useOrgProfile = true,
+      forceRefresh = false,
+    }: {
+      callId: string;
+      nIdeas?: number;
+      useOrgProfile?: boolean;
+      forceRefresh?: boolean;
+    }) =>
+      apiClient<GenerateIdeasResponse>(
+        `/api/v1/calls/${callId}/generate-ideas`,
+        {
+          method: 'POST',
+          body: {
+            n_ideas: nIdeas,
+            use_org_profile: useOrgProfile,
+            force_refresh: forceRefresh,
+          },
+        },
+      ),
+  });
+}
+
+/** Rule-based eligibility check for the caller's org against a call. */
+export function useCallEligibility(callId: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.callEligibility(callId),
+    queryFn: () =>
+      apiClient<EligibilityReport>(`/api/v1/calls/${callId}/eligibility`),
+    enabled: opts.enabled ?? Boolean(callId),
+    staleTime: 60_000,
+  });
+}
+
+// ── Project ideas + bidirectional matching (Faz 2) ──────────────────────
+
+export function useIdeas(opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.ideas,
+    queryFn: () => apiClient<IdeaListResponse>('/api/v1/ideas'),
+    enabled: opts.enabled ?? true,
+    staleTime: 30_000,
+  });
+}
+
+export function useIdeaDetail(ideaId: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.ideaDetail(ideaId),
+    queryFn: () => apiClient<IdeaSummary>(`/api/v1/ideas/${ideaId}`),
+    enabled: opts.enabled ?? Boolean(ideaId),
+  });
+}
+
+export function useCreateIdea() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: IdeaCreate) =>
+      apiClient<IdeaSummary>('/api/v1/ideas', { method: 'POST', body: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.ideas }),
+  });
+}
+
+/** Run the matcher for an idea; persists + returns the ranked calls. */
+export function useMatchIdea() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ideaId, topK = 5 }: { ideaId: string; topK?: number }) =>
+      apiClient<IdeaMatchResponse>(`/api/v1/ideas/${ideaId}/match`, {
+        method: 'POST',
+        searchParams: { top_k: topK },
+      }),
+    onSuccess: (_data, { ideaId }) =>
+      qc.invalidateQueries({ queryKey: queryKeys.ideaMatches(ideaId) }),
+  });
+}
+
+/** Read the cached match list for an idea (empty until the matcher runs). */
+export function useIdeaMatches(ideaId: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.ideaMatches(ideaId),
+    queryFn: () =>
+      apiClient<IdeaMatchResponse>(`/api/v1/ideas/${ideaId}/matches`),
+    enabled: opts.enabled ?? Boolean(ideaId),
+  });
+}
+
+// ── Organization profile (Faz 2) ────────────────────────────────────────
+
+export function useOrganizationProfile(opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.organizationProfile,
+    queryFn: () =>
+      apiClient<OrganizationProfile>('/api/v1/organizations/profile'),
+    enabled: opts.enabled ?? true,
+    // 404 means "no profile yet" — a real product state, not an error
+    // to retry. The consuming component checks isError + treats it as
+    // "show the empty form".
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpsertOrganizationProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: OrganizationProfileUpsert) =>
+      apiClient<OrganizationProfile>('/api/v1/organizations/profile', {
+        method: 'PUT',
+        body: input,
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: queryKeys.organizationProfile }),
   });
 }
 

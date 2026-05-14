@@ -660,14 +660,14 @@ def build_tubitak_template(
 
 __all__ = [
     "PRODIS_FIELD_LABELS",
-    "ProdisField",
     "TEMPLATE_PLACEHOLDER_TEXT",
     "TEMPLATE_SECTIONS",
-    "TUBITAKBaseModule",
     "_BUDGET_CATEGORIES",
     "_SECTION_HEADERS",
     "_SUBSECTION_MAP",
     "_TEMPLATE_LEADING_PARAGRAPHS_KEPT",
+    "ProdisField",
+    "TUBITAKBaseModule",
     "_extract_subsection_body",
     "_fmt_money",
     "_markdown_to_plain_text",

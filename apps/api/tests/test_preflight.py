@@ -182,7 +182,7 @@ def full_required_env() -> dict[str, str]:
     """Build a placeholder env that covers every required key."""
 
     keys = _parse_required_keys(_example_path())
-    return {key: "placeholder" for key in keys}
+    return dict.fromkeys(keys, "placeholder")
 
 
 def _run_preflight_with_env(env_vars: dict[str, str]) -> subprocess.CompletedProcess[str]:

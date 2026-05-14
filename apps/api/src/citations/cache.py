@@ -110,9 +110,9 @@ class CitationCache:
 
 
 __all__ = [
+    "DEFAULT_TTL_SECONDS",
     "CacheBackend",
     "CitationCache",
-    "DEFAULT_TTL_SECONDS",
     "InMemoryCacheBackend",
     "RedisCacheBackend",
 ]

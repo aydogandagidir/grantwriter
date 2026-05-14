@@ -39,6 +39,7 @@ def get_module(programme_id: str) -> BaseProgramModule:
 
 
 __all__ = [
+    "REGISTRY",
     "BaseProgramModule",
     "BriefField",
     "BriefSchema",
@@ -47,7 +48,6 @@ __all__ = [
     "CascadeFundingModule",
     "HorizonEURIAModule",
     "KOSGEBARGEModule",
-    "REGISTRY",
     "TUBITAK1501Module",
     "TUBITAK1507Module",
     "ValidationIssue",

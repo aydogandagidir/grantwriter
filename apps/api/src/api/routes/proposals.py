@@ -803,13 +803,23 @@ async def _get_redis(request: Request) -> Any:
     from src.core.config import get_settings
 
     settings = get_settings()
-    if settings.redis_url is None:
+    # REDIS_URL can arrive as None *or* an empty string — CI's
+    # "Redis-unset stream guard" job sets ``REDIS_URL=`` explicitly to
+    # exercise this path. An empty string is not a valid Redis URL, so
+    # treat it the same as None: caller maps the None to a clean 503
+    # instead of letting redis-py raise a ValueError on ``from_url("")``.
+    redis_url = (
+        settings.redis_url.get_secret_value()
+        if settings.redis_url is not None
+        else None
+    )
+    if not redis_url:
         return None
 
     import redis.asyncio as redis_asyncio
 
     client = redis_asyncio.from_url(  # type: ignore[no-untyped-call]
-        settings.redis_url.get_secret_value()
+        redis_url
     )
     request.app.state.redis_client = client
     return client
@@ -1082,9 +1092,7 @@ async def update_proposal(
                     status.HTTP_404_NOT_FOUND,
                     detail=f"proposal {proposal_id} not found",
                 )
-            audit_diff: dict[str, Any] = {
-                k: "set" for k in updates
-            }
+            audit_diff: dict[str, Any] = dict.fromkeys(updates, "set")
             if "status" in updates:
                 audit_diff["new_status"] = updates["status"]
             await write_audit_event(

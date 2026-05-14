@@ -66,7 +66,7 @@ def _get_jwks_client(jwks_url: str) -> PyJWKClient:
         return client
 
 
-def verify_supabase_jwt(  # noqa: PLR0912 - one branch per PyJWT exception class is the point
+def verify_supabase_jwt(
     token: str,
     secret: str | None = None,
     *,

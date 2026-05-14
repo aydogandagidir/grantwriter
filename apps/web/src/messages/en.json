@@ -45,7 +45,11 @@
   },
   "nav": {
     "dashboard": "Dashboard",
+    "discover": "Discover",
+    "calls": "Open Calls",
+    "ideas": "My Ideas",
     "proposals": "Proposals",
+    "organization": "Organization",
     "settings": "Settings",
     "llmConfig": "LLM Keys",
     "members": "Members",
@@ -195,6 +199,184 @@
     "edit": "Edit",
     "saveEdit": "Update",
     "empty": "No comments yet."
+  },
+  "calls": {
+    "title": "Open Calls",
+    "subtitle": "Live funder catalogue — search, filter, and pick the call that matches your idea.",
+    "searchPlaceholder": "Search title, topic, or keyword…",
+    "loading": "Loading calls…",
+    "empty": "No calls match these filters. Loosen the criteria and try again.",
+    "errorTitle": "Couldn't load calls",
+    "errorRetry": "Retry",
+    "resultCount": "{count, plural, =0 {No matches} =1 {1 match} other {# matches}}",
+    "sort": {
+      "label": "Sort",
+      "deadline": "Deadline (soonest)",
+      "budget": "Budget (highest)",
+      "recency": "Recently added",
+      "relevance": "Relevance"
+    },
+    "status": {
+      "open": "Open",
+      "closing_soon": "Closing soon",
+      "closed": "Closed",
+      "draft": "Draft"
+    },
+    "card": {
+      "deadline": "Deadline",
+      "noDeadline": "Rolling",
+      "budget": "Budget",
+      "trl": "TRL",
+      "consortium": "Consortium required",
+      "individual": "Individuals welcome",
+      "viewDetail": "View details",
+      "fundingRate": "{rate}% funding"
+    },
+    "filters": {
+      "title": "Filters",
+      "clearAll": "Clear all",
+      "programme": "Programme",
+      "agency": "Sub-programme",
+      "deadlineAfter": "Deadline after",
+      "deadlineBefore": "Deadline before",
+      "budgetMin": "Budget min (€)",
+      "budgetMax": "Budget max (€)",
+      "trlMin": "TRL min",
+      "trlMax": "TRL max",
+      "sectors": "Sectors",
+      "eligibility": "Eligibility",
+      "geoScope": "Geography",
+      "language": "Language",
+      "status": "Status",
+      "anyStatus": "Open + closing soon"
+    },
+    "pagination": {
+      "previous": "Previous",
+      "next": "Next",
+      "page": "Page {current} of {total}"
+    },
+    "detail": {
+      "back": "Back to calls",
+      "applyAt": "Apply on funder site",
+      "downloadWorkProgramme": "Download work programme (PDF)",
+      "applicationForm": "Application form",
+      "scopeSummary": "Scope",
+      "callText": "Full text",
+      "eligibility": "Eligibility",
+      "keyDates": "Key dates",
+      "openingAt": "Opens",
+      "deadline": "Deadline",
+      "metadata": "Source metadata",
+      "notFoundTitle": "Call not found",
+      "notFoundDescription": "This call may have been removed or never existed."
+    },
+    "discovery": {
+      "generateCta": "Generate project ideas for this call",
+      "generating": "Generating ideas… this takes a few seconds",
+      "generatedTitle": "Project ideas for this call",
+      "fromCache": "Cached",
+      "regenerate": "Regenerate",
+      "alignment": "{score}% aligned",
+      "consortium": "Suggested consortium",
+      "eligibilityCta": "Check my eligibility",
+      "checking": "Checking…",
+      "eligibilityTitle": "Eligibility check",
+      "confidence": "{score}% confidence",
+      "verdict": {
+        "ELIGIBLE": "Eligible",
+        "CONDITIONAL": "Conditional",
+        "NOT_ELIGIBLE": "Not eligible"
+      }
+    }
+  },
+  "discover": {
+    "title": "Discover Funding",
+    "subtitle": "Two ways in: start from your idea, or start from an open call.",
+    "ideaFirst": {
+      "title": "I have an idea",
+      "description": "Describe your project — we'll rank the open calls that fit it best, with a reason for each match.",
+      "cta": "Enter my idea"
+    },
+    "callFirst": {
+      "title": "Browse open calls",
+      "description": "Explore the live funder catalogue. Found a call you like? We'll generate project ideas tailored to it.",
+      "cta": "Browse calls"
+    }
+  },
+  "ideas": {
+    "listTitle": "My Ideas",
+    "listSubtitle": "Project ideas you've entered and their call matches.",
+    "empty": "No ideas yet — describe your first project to find matching calls.",
+    "newIdea": "New idea",
+    "new": {
+      "title": "Describe your project idea",
+      "subtitle": "The more concrete the abstract, the sharper the matches.",
+      "titleLabel": "Project title",
+      "titlePlaceholder": "e.g. Edge-AI predictive maintenance for factory PLCs",
+      "abstractLabel": "Abstract",
+      "abstractPlaceholder": "What does the project do, what's the technical approach, what outcome are you targeting? 120-400 words works best.",
+      "technologyAngleLabel": "Technology angle (optional)",
+      "targetMarketLabel": "Target market (optional)",
+      "trlLabel": "Current TRL (optional)",
+      "budgetMinLabel": "Budget min € (optional)",
+      "budgetMaxLabel": "Budget max € (optional)",
+      "sectorsLabel": "Sectors (comma-separated, optional)",
+      "keywordsLabel": "Keywords (comma-separated, optional)",
+      "submit": "Find matching calls",
+      "submitting": "Saving idea…"
+    },
+    "matches": {
+      "title": "Matched calls",
+      "subtitle": "Ranked open calls for your idea, with a score breakdown and the gaps to close.",
+      "runMatch": "Run matcher",
+      "rerun": "Re-run matcher",
+      "matching": "Matching… this takes a few seconds",
+      "empty": "No matches yet. Run the matcher to rank open calls for this idea.",
+      "noResults": "The matcher found no open calls that clear the hard filters. Broaden your idea's sectors or budget band and try again.",
+      "scoreBreakdown": "Score breakdown",
+      "semantic": "Semantic",
+      "keyword": "Keyword",
+      "sector": "Sector",
+      "trlFit": "TRL fit",
+      "budgetFit": "Budget fit",
+      "whyMatch": "Why this match?",
+      "gaps": "Gaps to close",
+      "viewCall": "View call",
+      "matchScore": "{score}% match"
+    }
+  },
+  "organization": {
+    "title": "Organization Profile",
+    "subtitle": "Drives eligibility checks and sharpens your call matches. Fill in what you can — the form saves progressively.",
+    "loading": "Loading profile…",
+    "emptyHint": "No profile yet. Add your organization details so we can check eligibility and tailor matches.",
+    "saved": "Profile saved",
+    "save": "Save profile",
+    "saving": "Saving…",
+    "fields": {
+      "legalName": "Legal name",
+      "entityType": "Organization type",
+      "country": "Country (ISO code, e.g. TR)",
+      "nutsRegion": "NUTS region (optional)",
+      "naceCodes": "NACE codes (comma-separated)",
+      "sectors": "Sectors (comma-separated)",
+      "teamSize": "Team size",
+      "annualRevenue": "Annual revenue €",
+      "foundedYear": "Founded year",
+      "technologyAreas": "Technology areas (comma-separated)",
+      "trlCurrent": "Current TRL",
+      "trlTarget": "Target TRL",
+      "expertiseKeywords": "Expertise keywords (comma-separated)",
+      "preferredLanguages": "Preferred languages (comma-separated)"
+    },
+    "entityTypes": {
+      "individual": "Individual",
+      "sme": "SME",
+      "university": "University",
+      "large_corp": "Large company",
+      "ngo": "NGO / Non-profit",
+      "research_org": "Research organization"
+    }
   },
   "proposals": {
     "title": "Proposals",

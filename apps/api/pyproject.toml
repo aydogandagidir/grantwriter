@@ -82,6 +82,11 @@ select = [
 ignore = [
   "E501",   # line-too-long — formatter handles this
   "PLR0913", # too-many-arguments — FastAPI dep injection
+  "PLR0911", # too-many-returns — false positives on early-exit parsers
+  "PLR0912", # too-many-branches — endpoint handlers with many optional filters
+  "PLR0915", # too-many-statements — same as PLR0912 driver
+  "PLR2004", # magic values — false positives on numeric ranges (TRL 1-9, % rates)
+  "PLC0415", # imports below top-of-file — legitimate for optional deps + lazy FastAPI deps
   "RUF001", # ambiguous unicode — bilingual TR/EN product, Turkish chars expected
   "RUF002", # ambiguous unicode in docstring — same reason
   "RUF003", # ambiguous unicode in comment — same reason
@@ -124,6 +129,12 @@ ignore_missing_imports = true
 # when missing, so type-checking treats them as opaque.
 [[tool.mypy.overrides]]
 module = ["sentry_sdk", "sentry_sdk.*", "logtail", "logtail.*"]
+ignore_missing_imports = true
+
+# Celery: ships without py.typed markers; signatures are dynamic
+# enough that stubs would be more trouble than they're worth.
+[[tool.mypy.overrides]]
+module = ["celery", "celery.*"]
 ignore_missing_imports = true
 
 # Resend SDK — imported lazily inside src/notifications/email.py. Same

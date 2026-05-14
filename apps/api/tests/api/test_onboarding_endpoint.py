@@ -147,7 +147,7 @@ def _build_client(
 
 async def test_onboarding_creates_tenant_and_user(pool: asyncpg.Pool) -> None:
     """New auth-only user creates workspace → 201, tenant + user created."""
-    user_id, user_email = await _make_auth_only_user(pool)
+    user_id, _user_email = await _make_auth_only_user(pool)
     slug = f"test-{user_id.hex[:12]}"
     created_tenant_ids: list[uuid.UUID] = []
     try:

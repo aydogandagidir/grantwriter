@@ -11,7 +11,7 @@ Worker entrypoint (per :file:`Makefile`):
 
 from __future__ import annotations
 
-from celery import Celery  # type: ignore[import-untyped]
+from celery import Celery
 
 from src.core.config import get_settings
 
@@ -41,7 +41,11 @@ celery_app: Celery = Celery(
     "bluedev_grantwriter",
     broker=_broker_url(),
     backend=_result_backend(),
-    include=["src.tasks.exports", "src.tasks.orchestrator"],
+    include=[
+        "src.tasks.exports",
+        "src.tasks.orchestrator",
+        "src.tasks.scrapers",
+    ],
 )
 
 celery_app.conf.update(
@@ -54,6 +58,37 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_default_queue="default",
 )
+
+
+# ── Beat schedule ────────────────────────────────────────────────────────
+#
+# Frequencies per docs/programs/README.md. All times are UTC; the funder
+# pages are unlikely to update before mid-morning Brussels / Istanbul.
+# Use ``crontab`` for human-readable cron expressions; the import here is
+# lazy so unit tests that don't touch beat don't pay the cost.
+
+from celery.schedules import crontab  # noqa: E402  (kept near beat config)
+
+celery_app.conf.beat_schedule = {
+    "scrape-eu-ft-portal-daily": {
+        "task": "src.tasks.scrapers.run_scraper_task",
+        "schedule": crontab(hour=2, minute=0),  # 03:00 Europe/Istanbul
+        "args": ("eu_ft_portal",),
+        "options": {"queue": "default"},
+    },
+    "scrape-nlnet-weekly": {
+        "task": "src.tasks.scrapers.run_scraper_task",
+        "schedule": crontab(hour=3, minute=0, day_of_week="monday"),
+        "args": ("nlnet",),
+        "options": {"queue": "default"},
+    },
+    "scrape-tubitak-weekly": {
+        "task": "src.tasks.scrapers.run_scraper_task",
+        "schedule": crontab(hour=4, minute=0, day_of_week="wednesday"),
+        "args": ("tubitak",),
+        "options": {"queue": "default"},
+    },
+}
 
 
 __all__ = ["celery_app"]

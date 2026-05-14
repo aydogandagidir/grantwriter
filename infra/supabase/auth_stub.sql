@@ -17,8 +17,19 @@ create schema if not exists auth;
 create table if not exists auth.users (
   id uuid primary key default gen_random_uuid(),
   email text unique,
+  -- Supabase's auth.users carries raw_user_meta_data (the JWT
+  -- user_metadata claim — display name, avatar, etc.). The onboarding
+  -- endpoint reads it; without the column the CI fast lane 500s with
+  -- ``UndefinedColumnError``. Mirror the production shape.
+  raw_user_meta_data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+-- Idempotency: CI databases created before this column was added need
+-- it backfilled — ``create table if not exists`` won't alter an
+-- existing table.
+alter table auth.users
+  add column if not exists raw_user_meta_data jsonb not null default '{}'::jsonb;
 
 -- auth.uid() — Supabase's standard implementation. Reads the JWT subject
 -- claim from the per-transaction GUC `request.jwt.claims`.
