@@ -43,6 +43,7 @@ celery_app: Celery = Celery(
     backend=_result_backend(),
     include=[
         "src.tasks.exports",
+        "src.tasks.guidelines",
         "src.tasks.orchestrator",
         "src.tasks.scrapers",
     ],

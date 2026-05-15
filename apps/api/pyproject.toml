@@ -30,6 +30,11 @@ pandas = "^2.2"
 tqdm = "^4.66"
 sse-starlette = "^2.1"
 openpyxl = "^3.1"
+# pypdf — pure-Python PDF text extractor for funder-guideline ingestion
+# (Faz 3). Lightweight, no system deps; we trade pdfminer.six's layout
+# fidelity for not pulling a 50MB+ binary chain. Section detection is
+# handled with our own heuristic on top of per-page text.
+pypdf = "^5.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"

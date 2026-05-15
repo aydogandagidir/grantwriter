@@ -100,9 +100,10 @@ async def test_persist_inserts_new_row_and_returns_true(
     call = _make_call("runner-test-insert-1")
 
     async with live_db_pool.acquire() as conn:
-        was_new = await runner.persist(conn, call)
+        outcome = await runner.persist(conn, call)
 
-    assert was_new is True
+    assert outcome.inserted is True
+    assert outcome.call_id is not None
 
     # Verify the row landed with the expected fields.
     async with live_db_pool.acquire() as conn:
@@ -129,11 +130,13 @@ async def test_persist_idempotent_update_returns_false(
     call_v2 = _make_call("runner-test-upsert-1", title="v2 updated")
 
     async with live_db_pool.acquire() as conn:
-        was_new_first = await runner.persist(conn, call_v1)
-        was_new_second = await runner.persist(conn, call_v2)
+        first = await runner.persist(conn, call_v1)
+        second = await runner.persist(conn, call_v2)
 
-    assert was_new_first is True
-    assert was_new_second is False
+    assert first.inserted is True
+    assert second.inserted is False
+    # Same (source, external_id) → same row id on the second pass.
+    assert first.call_id == second.call_id
 
     async with live_db_pool.acquire() as conn:
         title = await conn.fetchval(
