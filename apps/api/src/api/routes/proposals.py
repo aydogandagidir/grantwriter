@@ -613,6 +613,219 @@ def _attach_hunt_blocker(
     )
 
 
+# ── Inline editor AI surfaces (Faz 4) ──────────────────────────────────
+
+
+InlineCommand = Literal[
+    "rewrite",
+    "shorter",
+    "longer",
+    "translate_en",
+    "translate_tr",
+]
+
+_INLINE_SYSTEM_PROMPTS: dict[InlineCommand, str] = {
+    "rewrite": (
+        "You are a grant-proposal editor. Rewrite the user's selected text so it "
+        "reads more clearly and persuasively while preserving every factual claim, "
+        "citation marker (e.g. [1], [Smith 2024]), and numeric figure. Match the "
+        "section's existing register (academic for excellence/impact, plan-style "
+        "for implementation). Return ONLY the replacement text — no explanation, "
+        "no quotes, no markdown fences."
+    ),
+    "shorter": (
+        "You are a grant-proposal editor. Shorten the user's selected text by "
+        "30–50% while keeping every factual claim, citation marker, and numeric "
+        "figure intact. Drop hedges and redundancies first. Do not invent new "
+        "content. Return ONLY the replacement text — no explanation."
+    ),
+    "longer": (
+        "You are a grant-proposal editor. Expand the user's selected text by "
+        "roughly 50–80%, adding concrete detail, mechanism, or substantive "
+        "justification consistent with the surrounding context. Do NOT invent "
+        "facts, citations, or numbers — say 'TBD' if a detail isn't supplied. "
+        "Return ONLY the replacement text."
+    ),
+    "translate_en": (
+        "You are a bilingual TR↔EN grant-proposal translator. Translate the "
+        "user's selected text into natural, register-appropriate English. "
+        "Preserve every citation marker, numeric figure, and proper noun "
+        "verbatim. Return ONLY the translation — no explanation, no quotes."
+    ),
+    "translate_tr": (
+        "You are a bilingual TR↔EN grant-proposal translator. Translate the "
+        "user's selected text into natural, register-appropriate Turkish. "
+        "Preserve every citation marker, numeric figure, and proper noun "
+        "verbatim. Return ONLY the translation — no explanation, no quotes."
+    ),
+}
+
+
+class InlineEditRequest(BaseModel):
+    """Body for ``POST /proposals/{id}/inline-edit``.
+
+    The editor's slash-command extension sends the selected text plus
+    a small window of surrounding context (≤500 chars each side). The
+    LLM uses the context as register/tone signal but only returns the
+    rewritten selection — the editor swaps just the selection range,
+    leaving the rest of the document untouched.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    command: InlineCommand
+    section: Literal["excellence", "impact", "implementation", "other"] = "other"
+    selection_text: str
+    """The text the user highlighted. Required, non-empty."""
+    context_before: str = ""
+    """Up to 500 chars of preceding text; gives the model register cues."""
+    context_after: str = ""
+    """Up to 500 chars of following text."""
+
+    def normalised_selection(self) -> str:
+        return self.selection_text.strip()
+
+
+class InlineEditResponse(BaseModel):
+    """Replacement text + provenance metadata for the editor."""
+
+    model_config = ConfigDict(frozen=True)
+
+    replacement_text: str
+    """The new text. The editor replaces the original selection with this."""
+    command: InlineCommand
+    """Echo of the request so the FE can log it alongside the provenance."""
+    model: str
+    """Which model produced the rewrite — surfaced in the AI disclosure."""
+    cost_usd: float
+    """USD cost of this single call (input + output tokens)."""
+    tokens_used: int
+    """Total tokens billed (input + output + cached)."""
+
+
+_INLINE_MAX_SELECTION = 4000
+_INLINE_MAX_CONTEXT = 500
+
+
+@router.post(
+    "/{proposal_id}/inline-edit",
+    response_model=InlineEditResponse,
+    summary="Apply an AI slash-command rewrite to a selection in the editor",
+)
+async def inline_edit_proposal(
+    proposal_id: UUID,
+    body: InlineEditRequest,
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    router_inst: Annotated[LLMRouter, Depends(get_llm_router)],
+    _rate_check: Annotated[RateLimitDecision, Depends(rate_limit(LLM_CALL))],
+) -> InlineEditResponse:
+    """Run one of the editor's slash commands against a text selection.
+
+    Behaviour:
+      - 400 if ``selection_text`` is empty or exceeds 4 000 chars (we
+        don't want the editor to ship a whole section as one selection;
+        that path goes through the section re-generate flow instead).
+      - 404 if the proposal doesn't exist.
+      - 429 on rate-limit (10 LLM calls / 60 s — same budget as
+        ``validate``).
+
+    Cost accounting flows through :class:`LLMRouter`, so the call hits
+    ``tenant_usage_log`` like every other LLM surface. The endpoint does
+    NOT write the replacement back to ``proposals.draft`` — the editor
+    is the source of truth on the FE; persistence happens on
+    explicit save.
+    """
+
+    selection = body.normalised_selection()
+    if not selection:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="selection_text must be non-empty"
+        )
+    if len(selection) > _INLINE_MAX_SELECTION:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"selection_text too long ({len(selection)} chars > "
+                f"{_INLINE_MAX_SELECTION}); re-generate the section instead"
+            ),
+        )
+
+    row = await conn.fetchrow(
+        "select tenant_id, language, programme_id from proposals where id = $1",
+        proposal_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"proposal {proposal_id} not found"
+        )
+
+    from src.llm.base import LLMMessage, LLMRequest
+
+    # Clamp context so we don't accidentally inflate a slash command
+    # into a section-rewrite prompt; the slash command's job is fast,
+    # local edits.
+    ctx_before = body.context_before[-_INLINE_MAX_CONTEXT:] if body.context_before else ""
+    ctx_after = body.context_after[:_INLINE_MAX_CONTEXT] if body.context_after else ""
+
+    system_prompt = _INLINE_SYSTEM_PROMPTS[body.command]
+    section_label = body.section
+    programme = str(row["programme_id"])
+    language = str(row["language"])
+
+    user_content_parts: list[str] = [
+        f"<section>{section_label}</section>",
+        f"<programme>{programme}</programme>",
+        f"<language>{language}</language>",
+    ]
+    if ctx_before:
+        user_content_parts.append(f"<context_before>\n{ctx_before}\n</context_before>")
+    user_content_parts.append(f"<selection>\n{selection}\n</selection>")
+    if ctx_after:
+        user_content_parts.append(f"<context_after>\n{ctx_after}\n</context_after>")
+    user_content = "\n\n".join(user_content_parts)
+
+    llm_request = LLMRequest(
+        task="inline_rewrite",
+        tenant_id=row["tenant_id"],
+        proposal_id=proposal_id,
+        user_id=user_id,
+        system=system_prompt,
+        messages=[LLMMessage(role="user", content=user_content)],
+        temperature=0.3,
+        max_tokens=1024,
+    )
+    llm_response = await router_inst.complete(llm_request)
+    replacement = llm_response.text.strip()
+    # Defensive trim: some models prefix the reply with "Here's the
+    # rewritten version:" despite the system prompt. Strip a single
+    # leading line of meta if it ends with a colon.
+    if replacement and "\n" in replacement:
+        first_line, rest = replacement.split("\n", 1)
+        if first_line.rstrip().endswith(":") and len(first_line) < 80:
+            replacement = rest.lstrip()
+
+    logger.info(
+        "inline_edit_completed",
+        extra={
+            "proposal_id": str(proposal_id),
+            "user_id": str(user_id),
+            "command": body.command,
+            "selection_chars": len(selection),
+            "replacement_chars": len(replacement),
+            "model": llm_response.model,
+            "cost_usd": llm_response.cost_usd,
+        },
+    )
+    return InlineEditResponse(
+        replacement_text=replacement,
+        command=body.command,
+        model=llm_response.model,
+        cost_usd=llm_response.cost_usd,
+        tokens_used=llm_response.usage.total,
+    )
+
+
 @router.get(
     "/{proposal_id}/ai-disclosure",
     response_model=AIDisclosureResponse,
