@@ -63,6 +63,32 @@ export interface GenerateIdeasResponse {
   from_cache: boolean;
 }
 
+/** Slash-command name accepted by POST /proposals/{id}/inline-edit. */
+export type InlineCommand =
+  | 'rewrite'
+  | 'shorter'
+  | 'longer'
+  | 'translate_en'
+  | 'translate_tr';
+
+/** Request body for POST /api/v1/proposals/{id}/inline-edit. */
+export interface InlineEditRequest {
+  command: InlineCommand;
+  section: 'excellence' | 'impact' | 'implementation' | 'other';
+  selection_text: string;
+  context_before?: string;
+  context_after?: string;
+}
+
+/** Response shape of POST /api/v1/proposals/{id}/inline-edit. */
+export interface InlineEditResponse {
+  replacement_text: string;
+  command: InlineCommand;
+  model: string;
+  cost_usd: number;
+  tokens_used: number;
+}
+
 /** Response shape of GET /api/v1/calls/{id}/eligibility. */
 export interface EligibilityReport {
   verdict: 'ELIGIBLE' | 'CONDITIONAL' | 'NOT_ELIGIBLE';
@@ -394,6 +420,31 @@ export function useValidateProposal(proposalId: string) {
       }),
     onSuccess: (data) =>
       qc.setQueryData(queryKeys.validation(proposalId), data),
+  });
+}
+
+/**
+ * Slash-command inline editor rewrite. Hits
+ * `POST /api/v1/proposals/{id}/inline-edit`. Mutation-shaped because the
+ * editor fires it from explicit user action (selection + slash menu pick)
+ * and the underlying endpoint is rate-limited (10 / 60s) — never on
+ * render.
+ *
+ * The hook does NOT touch the proposal cache: the editor is the source
+ * of truth for the live document and persists explicitly via save. We
+ * just deliver the replacement text + cost/model so the editor can
+ * tag the new content with provenance.
+ */
+export function useInlineEdit(proposalId: string) {
+  return useMutation({
+    mutationFn: (body: InlineEditRequest) =>
+      apiClient<InlineEditResponse>(
+        `/api/v1/proposals/${proposalId}/inline-edit`,
+        {
+          method: 'POST',
+          body: JSON.stringify(body),
+        },
+      ),
   });
 }
 

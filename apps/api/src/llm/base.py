@@ -33,6 +33,8 @@ TaskName = Literal[
     "eligibility_check",
     "idea_distill",
     "infer_profile",
+    # Faz 4 — editor inline AI surfaces (slash commands, citation helper)
+    "inline_rewrite",
 ]
 Role = Literal["user", "assistant"]
 
@@ -355,6 +357,21 @@ TASK_ROUTES: dict[TaskName, RouteEntry] = {
         fallback_model="gpt-4o-mini",
         temperature=0.0,
         max_tokens=2048,
+    ),
+    # ── Faz 4 — editor inline AI surfaces ────────────────────────────────
+    "inline_rewrite": RouteEntry(
+        # Slash-command rewrites in the TipTap editor (/rewrite,
+        # /shorter, /longer, /translate-en, /translate-tr). Small
+        # context — one selected paragraph plus a few sentences of
+        # surrounding text — so Sonnet-class is plenty. Slight
+        # temperature lets /rewrite produce variation; deterministic
+        # commands like /shorter clamp it back via the system prompt.
+        primary_provider="claude",
+        primary_model="claude-sonnet-4-6",
+        fallback_provider="openai",
+        fallback_model="gpt-4o-mini",
+        temperature=0.3,
+        max_tokens=1024,
     ),
 }
 

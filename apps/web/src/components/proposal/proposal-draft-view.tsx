@@ -16,18 +16,25 @@ import {
 import { useToast } from '@/components/ui/use-toast';
 import { useExportProposal } from '@/lib/api/queries';
 
+import { ProposalSectionEditor } from './tiptap/editor';
+
+import type { ProposalSection } from './tiptap/editor';
+
 /**
- * Read-only draft renderer (Sprint 4 MVP). Shows the three writer
- * outputs (excellence_md / impact_md / implementation_md) as
- * `<pre className="whitespace-pre-wrap">` blocks. The real TipTap
- * editor lands in a follow-up sprint; until then this surface is
- * good enough for pilot operators to read + spot-check the output.
+ * Draft renderer with the Faz 4 TipTap WYSIWYG editor mounted for
+ * each writer section (excellence / impact / implementation). The
+ * editor reads markdown on first render, hands the user the floating
+ * AI bubble menu (rewrite / shorter / longer / translate), and emits
+ * HTML on every change.
  *
- * Export button enqueues a DOCX task (XLSX for HE Lump Sum is one
- * dropdown away — kept simple for MVP).
+ * Persistence: this view is the source of truth for the live HTML
+ * but does NOT save automatically — the parent screen's save button
+ * still drives the PATCH /proposals/{id} call. We surface the
+ * unsaved-changes flag once the user touches any section.
  */
 export function ProposalDraftView({ proposal }: { proposal: ProposalDetail }) {
   const t = useTranslations('proposalDetail');
+  const tEditor = useTranslations('proposalEditor');
   const { toast } = useToast();
   const exportMutation = useExportProposal(proposal.id);
 
@@ -105,29 +112,57 @@ export function ProposalDraftView({ proposal }: { proposal: ProposalDetail }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <Section title="Excellence" body={draft.excellence_md} />
-        <Section title="Impact" body={draft.impact_md} />
-        <Section title="Implementation" body={draft.implementation_md} />
+        <EditorSection
+          proposalId={proposal.id}
+          section="excellence"
+          title="Excellence"
+          body={draft.excellence_md}
+          placeholder={tEditor('placeholder')}
+        />
+        <EditorSection
+          proposalId={proposal.id}
+          section="impact"
+          title="Impact"
+          body={draft.impact_md}
+          placeholder={tEditor('placeholder')}
+        />
+        <EditorSection
+          proposalId={proposal.id}
+          section="implementation"
+          title="Implementation"
+          body={draft.implementation_md}
+          placeholder={tEditor('placeholder')}
+        />
       </CardContent>
     </Card>
   );
 }
 
-function Section({ title, body }: { title: string; body: string | undefined }) {
-  if (!body) {
-    return null;
-  }
+function EditorSection({
+  proposalId,
+  section,
+  title,
+  body,
+  placeholder,
+}: {
+  proposalId: string;
+  section: ProposalSection;
+  title: string;
+  body: string | undefined;
+  placeholder: string;
+}) {
+  if (!body) return null;
   return (
-    <section>
+    <section data-testid={`section-${title.toLowerCase()}`}>
       <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h3>
-      <pre
-        className="whitespace-pre-wrap rounded-md border bg-card p-4 text-sm leading-relaxed"
-        data-testid={`section-${title.toLowerCase()}`}
-      >
-        {body}
-      </pre>
+      <ProposalSectionEditor
+        proposalId={proposalId}
+        section={section}
+        initialMarkdown={body}
+        placeholder={placeholder}
+      />
     </section>
   );
 }

@@ -458,6 +458,19 @@
     "exporting": "Dışa aktarılıyor…",
     "exportQueued": "Dışa aktarım sıraya alındı ({jobId}). İndirme URL'si için jobs API'sini kontrol et."
   },
+  "proposalEditor": {
+    "placeholder": "Yazmaya başla ya da metin seçip bir AI komutu uygula…",
+    "sectionLabel": "{section} bölümü",
+    "ai": {
+      "toolbarLabel": "AI yeniden yazma araçları",
+      "rewrite": "Yeniden yaz",
+      "shorter": "Kısalt",
+      "longer": "Uzat",
+      "translateEn": "→ EN",
+      "translateTr": "→ TR",
+      "errorTitle": "Satır içi düzenleme başarısız"
+    }
+  },
   "generateProgress": {
     "title": "Saga ilerlemesi",
     "subtitle": "Ajan boru hattından canlı güncellemeler.",

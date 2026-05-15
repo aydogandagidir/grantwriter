@@ -458,6 +458,19 @@
     "exporting": "Sending to export…",
     "exportQueued": "Export queued (job {jobId}). Check the jobs API for the download URL."
   },
+  "proposalEditor": {
+    "placeholder": "Start writing or select text and pick an AI command…",
+    "sectionLabel": "{section} section",
+    "ai": {
+      "toolbarLabel": "AI rewrite tools",
+      "rewrite": "Rewrite",
+      "shorter": "Shorter",
+      "longer": "Longer",
+      "translateEn": "→ EN",
+      "translateTr": "→ TR",
+      "errorTitle": "Inline edit failed"
+    }
+  },
   "generateProgress": {
     "title": "Saga progress",
     "subtitle": "Live updates from the agent pipeline.",
