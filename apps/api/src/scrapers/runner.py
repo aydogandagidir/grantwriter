@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -45,12 +47,34 @@ logger = logging.getLogger(__name__)
 
 TriggeredBy = Literal["beat", "manual", "test"]
 
+OnPersist = Callable[[UUID, NormalizedCall, bool], Awaitable[None]]
+"""Callback fired after each successful upsert.
+
+Receives ``(call_id, normalized_call, inserted)``. Production wires this
+to enqueue the funder-guideline ingest task whenever a call carries a
+PDF URL; tests usually leave it ``None``.
+"""
+
+
+@dataclass(frozen=True)
+class _PersistResult:
+    """Internal carrier for what ``persist()`` returns to ``run()``."""
+
+    call_id: UUID
+    inserted: bool
+
 
 class ScraperRunner:
     """Run one scraper end-to-end against a live database pool."""
 
-    def __init__(self, *, pool: asyncpg.Pool) -> None:
+    def __init__(
+        self,
+        *,
+        pool: asyncpg.Pool,
+        on_persist: OnPersist | None = None,
+    ) -> None:
         self._pool = pool
+        self._on_persist = on_persist
 
     async def run(
         self,
@@ -89,16 +113,30 @@ class ScraperRunner:
                 discovered += 1
                 external_id = str(raw.get("external_id") or "?")
                 try:
-                    detail = await scraper.fetch_call_detail(
-                        external_id, discover_payload=raw
-                    )
+                    detail = await scraper.fetch_call_detail(external_id, discover_payload=raw)
                     call = await scraper.normalize(detail)
                     async with self._pool.acquire() as conn:
-                        was_new = await self.persist(conn, call)
-                    if was_new:
+                        outcome = await self.persist(conn, call)
+                    if outcome.inserted:
                         persisted += 1
                     else:
                         updated += 1
+                    if self._on_persist is not None:
+                        # Callback errors are isolated — a failed
+                        # downstream dispatch (e.g. Celery broker
+                        # unavailable) must not block the rest of the
+                        # scrape from finishing.
+                        try:
+                            await self._on_persist(outcome.call_id, call, outcome.inserted)
+                        except Exception:
+                            logger.exception(
+                                "scraper_on_persist_failed",
+                                extra={
+                                    "source": source,
+                                    "call_id": str(outcome.call_id),
+                                    "external_id": external_id,
+                                },
+                            )
                 except Exception as exc:
                     failed += 1
                     errors.append(
@@ -150,11 +188,10 @@ class ScraperRunner:
 
     # ── persist (upsert) ─────────────────────────────────────────────
 
-    async def persist(
-        self, conn: asyncpg.Connection, call: NormalizedCall
-    ) -> bool:
-        """Upsert one normalized call. Returns ``True`` when a brand-new
-        row was inserted, ``False`` when an existing one was updated.
+    async def persist(self, conn: asyncpg.Connection, call: NormalizedCall) -> _PersistResult:
+        """Upsert one normalized call. Returns the row id and an
+        ``inserted`` bool that's ``True`` on a brand-new row and
+        ``False`` when an existing one was updated.
 
         Detection uses ``xmax = 0`` (Postgres trick): xmax is the
         transaction id that deleted/locked the row — it's ``0`` on a
@@ -213,7 +250,7 @@ class ScraperRunner:
               source_url_canonical = EXCLUDED.source_url_canonical,
               agency_id = EXCLUDED.agency_id,
               last_seen_at = now()
-            RETURNING (xmax = 0) AS inserted
+            RETURNING id, (xmax = 0) AS inserted
             """,
             call.programme_id,
             call.source,
@@ -246,7 +283,10 @@ class ScraperRunner:
             call.agency_id,
         )
         assert row is not None
-        return bool(row["inserted"])
+        return _PersistResult(
+            call_id=UUID(str(row["id"])),
+            inserted=bool(row["inserted"]),
+        )
 
     # ── scraper_runs bookkeeping ─────────────────────────────────────
 
@@ -274,9 +314,7 @@ class ScraperRunner:
             assert row is not None
             return UUID(str(row["id"]))
 
-    async def _update_run_finished(
-        self, run_id: UUID, result: ScraperRunResult
-    ) -> None:
+    async def _update_run_finished(self, run_id: UUID, result: ScraperRunResult) -> None:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """
@@ -301,4 +339,4 @@ class ScraperRunner:
             )
 
 
-__all__ = ["ScraperRunner", "TriggeredBy"]
+__all__ = ["OnPersist", "ScraperRunner", "TriggeredBy"]
