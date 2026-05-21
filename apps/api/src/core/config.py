@@ -11,12 +11,13 @@ string.
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from typing import Annotated, Literal
 
 from fastapi import Depends
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 AppEnv = Literal["development", "staging", "production", "test"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -39,7 +40,39 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     app_version: str = "0.1.0"
 
-    cors_origins: list[str] = Field(default_factory=list)
+    # NoDecode disables pydantic-settings' built-in JSON decoding for this
+    # field so the validator below sees the raw env string. Without it, a
+    # value like ``https://a.com,https://b.com`` (no JSON brackets) raises
+    # at boot, and a slightly malformed JSON array silently yields []. CORS
+    # config is too load-bearing to be that brittle.
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, value: object) -> list[str]:
+        """Accept a JSON array, a comma-separated string, or a real list.
+
+        - ``["https://a.com","https://b.com"]`` (JSON array)
+        - ``https://a.com,https://b.com`` (comma-separated, no quotes)
+        - ``https://a.com`` (single origin)
+        - ``""`` / ``None`` → ``[]``
+        """
+
+        if value is None or value == "":
+            return []
+        if isinstance(value, list):
+            return [str(v).strip() for v in value if str(v).strip()]
+        if isinstance(value, str):
+            text = value.strip()
+            if text.startswith("["):
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = None
+                if isinstance(parsed, list):
+                    return [str(v).strip() for v in parsed if str(v).strip()]
+            return [item.strip() for item in text.split(",") if item.strip()]
+        return []
 
     # Database / Redis
     database_url: SecretStr | None = None

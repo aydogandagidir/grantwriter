@@ -83,3 +83,6 @@ pids/
 .temp/
 .tmp/
 coverage/
+
+.vercel
+.env*.local
