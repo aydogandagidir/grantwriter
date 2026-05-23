@@ -28,7 +28,14 @@
       "submit": "Giriş yap",
       "noAccount": "Hesabın yok mu?",
       "signUp": "Kayıt ol",
-      "invalidCredentials": "E-posta veya parola hatalı."
+      "invalidCredentials": "E-posta veya parola hatalı.",
+      "authErrors": {
+        "otp_expired": "Onay bağlantının süresi dolmuş ya da daha önce kullanılmış. Yeni bir bağlantı için lütfen tekrar kayıt ol.",
+        "access_denied": "Bu bağlantı artık geçerli değil. Lütfen yeni bir onay e-postası iste.",
+        "exchange_failed": "Bu bağlantıdan girişi tamamlayamadık. Lütfen giriş yapmayı dene ya da tekrar kayıt ol.",
+        "missing_code": "Bu bağlantı eksik. Lütfen sana gönderdiğimiz en son e-postayı kullan.",
+        "generic": "Bu bağlantıda bir sorun oluştu. Lütfen tekrar giriş yapmayı dene."
+      }
     },
     "signup": {
       "title": "Hesap oluştur",

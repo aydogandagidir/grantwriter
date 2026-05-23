@@ -28,7 +28,14 @@
       "submit": "Log in",
       "noAccount": "No account?",
       "signUp": "Sign up",
-      "invalidCredentials": "Email or password is incorrect."
+      "invalidCredentials": "Email or password is incorrect.",
+      "authErrors": {
+        "otp_expired": "Your confirmation link has expired or was already used. Please sign up again to receive a fresh link.",
+        "access_denied": "That link is no longer valid. Please request a new confirmation email.",
+        "exchange_failed": "We couldn't complete sign-in from that link. Please try logging in, or sign up again.",
+        "missing_code": "This link is incomplete. Please use the most recent email we sent you.",
+        "generic": "Something went wrong with that link. Please try signing in again."
+      }
     },
     "signup": {
       "title": "Create an account",
