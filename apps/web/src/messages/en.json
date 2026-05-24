@@ -543,7 +543,8 @@
     "back": "Back",
     "createWorkspace": "Create workspace",
     "creating": "Creating…",
-    "errorGeneric": "Couldn't create the workspace. Please try again."
+    "errorGeneric": "Couldn't create the workspace. Please try again.",
+    "errorUnavailable": "The server is waking up. Please try again in a few seconds."
   },
   "marketing": {
     "nav": {

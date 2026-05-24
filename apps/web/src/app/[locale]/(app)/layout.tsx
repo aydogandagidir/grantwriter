@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 
 import { Sidebar } from '@/components/app-shell/sidebar';
 import { Topbar } from '@/components/app-shell/topbar';
+import { ApiError } from '@/lib/api/client';
 import { apiServer } from '@/lib/api/server';
 import { createClient } from '@/lib/supabase/server';
 import type { MeResponse } from '@bluedev/shared-types';
@@ -42,11 +43,19 @@ export default async function AppLayout({
   let me: MeResponse;
   try {
     me = await apiServer<MeResponse>('/api/v1/me');
-  } catch {
-    // No tenant row yet — send the user to onboarding. The onboarding
-    // page itself can decide whether to provision a tenant or surface
-    // a "contact your admin" message.
-    redirect('/onboarding');
+  } catch (err) {
+    // 404 == Supabase user exists but has no public.users row yet (the
+    // post-signup state). That — and only that — means "needs onboarding".
+    if (err instanceof ApiError && err.status === 404) {
+      redirect('/onboarding');
+    }
+    // Any other failure (transient 5xx while the backend cold-starts, a
+    // network blip) must NOT be misread as "no tenant" — doing so would
+    // bounce an existing user out of their workspace and into onboarding.
+    // Re-throw so the error boundary shows a retry UI instead. NB:
+    // redirect() above throws NEXT_REDIRECT (not an ApiError), so it
+    // propagates past this re-throw unharmed.
+    throw err;
   }
 
   return (

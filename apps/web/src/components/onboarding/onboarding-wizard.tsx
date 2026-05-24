@@ -23,7 +23,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { apiClient } from '@/lib/api/client';
+import { ApiError, apiClient } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 
 // ── Schema ────────────────────────────────────────────────────────────
@@ -125,11 +125,20 @@ export function OnboardingWizard() {
       // array (422 — keys vary, so we fall back to a generic message
       // rather than dump structured noise in the UI).
       captureException(err, { tags: { flow: 'onboarding' } });
-      const detail =
-        err && typeof err === 'object' && 'detail' in err
-          ? (err as { detail: unknown }).detail
-          : undefined;
-      setError(typeof detail === 'string' ? detail : t('errorGeneric'));
+      // 502/504 mean the backend was unreachable (gateway) — a soft
+      // "try again" fits. A 503 here is an application signal that carries
+      // an actionable detail (e.g. "JWT verification not configured"), so
+      // we fall through and surface that exact message instead of hiding
+      // it behind a generic retry prompt.
+      if (err instanceof ApiError && [502, 504].includes(err.status)) {
+        setError(t('errorUnavailable'));
+      } else {
+        const detail =
+          err && typeof err === 'object' && 'detail' in err
+            ? (err as { detail: unknown }).detail
+            : undefined;
+        setError(typeof detail === 'string' ? detail : t('errorGeneric'));
+      }
     } finally {
       setIsSubmitting(false);
     }
