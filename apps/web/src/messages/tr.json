@@ -543,7 +543,8 @@
     "back": "Geri",
     "createWorkspace": "Alanı oluştur",
     "creating": "Oluşturuluyor…",
-    "errorGeneric": "Çalışma alanı oluşturulamadı. Tekrar dene."
+    "errorGeneric": "Çalışma alanı oluşturulamadı. Tekrar dene.",
+    "errorUnavailable": "Sunucu şu an uyanıyor. Lütfen birkaç saniye sonra tekrar dene."
   },
   "marketing": {
     "nav": {

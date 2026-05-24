@@ -45,7 +45,38 @@ type SearchParamValue = SearchParamScalar | SearchParamScalar[] | null | undefin
 export interface ApiRequestInit extends Omit<RequestInit, 'body'> {
   body?: unknown;
   searchParams?: Record<string, SearchParamValue>;
+  /**
+   * Max retry attempts for gateway/cold-start failures (502/503/504 and
+   * network errors). Defaults to {@link DEFAULT_RETRIES}. Set to 0 to
+   * disable — useful for genuinely non-idempotent calls where a duplicate
+   * side effect would be worse than surfacing the error.
+   */
+  retries?: number;
 }
+
+/**
+ * Statuses safe to retry: a gateway/proxy returned them because it could
+ * not reach a running app instance, so the handler never executed — which
+ * makes retrying a write safe too.
+ *
+ * 503 is deliberately EXCLUDED. This backend raises 503 as an
+ * application-level "capability not configured" signal (missing Supabase
+ * JWT config, unset Iyzico/LLM keys, etc.) that will never resolve on
+ * retry. Retrying it would waste the budget and, worse, mask an
+ * actionable ``detail`` message behind a generic "try again".
+ */
+const RETRYABLE_STATUSES = new Set([502, 504]);
+const DEFAULT_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 400;
+
+function backoffDelay(attempt: number): number {
+  // Exponential (400ms, 800ms, 1600ms…) with jitter to avoid a thundering
+  // herd when several tabs wake a cold backend at once.
+  const base = RETRY_BASE_DELAY_MS * 2 ** attempt;
+  return base + Math.random() * RETRY_BASE_DELAY_MS;
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export function buildUrl(path: string, searchParams?: ApiRequestInit['searchParams']): string {
   const base = env.apiUrl.replace(/\/$/, '');
@@ -145,19 +176,36 @@ export async function call<T>(
     }
   }
 
-  const response = await fetch(buildUrl(path, init.searchParams), {
-    ...init,
-    headers,
-    body: bodyToSend,
-  });
+  const url = buildUrl(path, init.searchParams);
+  const maxRetries = init.retries ?? DEFAULT_RETRIES;
 
-  if (!response.ok) {
-    throw await parseError(response);
+  for (let attempt = 0; ; attempt++) {
+    let response: Response;
+    try {
+      // `searchParams`/`retries` are non-RequestInit extras; fetch ignores
+      // unknown init keys, so spreading the whole object is harmless.
+      response = await fetch(url, { ...init, headers, body: bodyToSend });
+    } catch (err) {
+      // Network-level failure (DNS, connection refused, cold-start TCP
+      // reset). Retry within budget; never retry a caller-driven abort.
+      const aborted = err instanceof DOMException && err.name === 'AbortError';
+      if (aborted || attempt >= maxRetries) throw err;
+      await sleep(backoffDelay(attempt));
+      continue;
+    }
+
+    if (!response.ok) {
+      if (RETRYABLE_STATUSES.has(response.status) && attempt < maxRetries) {
+        await sleep(backoffDelay(attempt));
+        continue;
+      }
+      throw await parseError(response);
+    }
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    return (await response.json()) as T;
   }
-  if (response.status === 204) {
-    return undefined as T;
-  }
-  return (await response.json()) as T;
 }
 
 /**
