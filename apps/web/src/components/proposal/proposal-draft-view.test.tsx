@@ -4,18 +4,16 @@ import { render, screen } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
 import { describe, expect, it } from 'vitest';
 
+import enMessages from '@/messages/en.json';
+
 import { ProposalDraftView } from './proposal-draft-view';
 
-const messages = {
-  proposalDetail: {
-    'tabs.draft': 'Draft',
-    draftEmpty: 'No draft yet. Click "Generate" to run the saga.',
-    exportDocx: 'Export DOCX',
-    exportXlsx: 'Export Lump Sum XLSX',
-    exporting: 'Sending to export…',
-    exportQueued: 'Export queued (job {jobId}). Check the jobs API for the download URL.',
-  },
-};
+// Use the real English message bundle (not a hand-maintained subset) so the
+// provider resolves every key the component tree touches — including the
+// `proposalEditor` namespace the mounted TipTap editor + inline AI menu read.
+// A partial fixture drifts and floods the test output with next-intl
+// MISSING_MESSAGE warnings; the real bundle keeps assertions honest too.
+const messages = enMessages;
 
 const baseProposal: ProposalDetail = {
   id: '00000000-0000-0000-0000-000000000001',
