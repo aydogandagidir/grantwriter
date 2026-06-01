@@ -15,10 +15,19 @@ Sentry, etc.) is opened. Three layered checks per REQUIRED var:
    here gives the operator a one-line message instead of a stack
    trace deep inside ``urllib.parse``.
 
-On failure: prints the actionable list to stderr and raises
-``SystemExit(1)`` so the container exits cleanly. Render / Railway /
-Fly surfaces the boot failure to the operator rather than letting it
-hide inside an asyncpg or jwt traceback downstream.
+Two operator-controlled outcomes on failure:
+
+* **Warn-only (default).** Errors are logged to stderr with a clear
+  ``WARN`` prefix; the function returns and the lifespan continues.
+  This is the safe default during a phased rollout where the secrets
+  matrix lands in waves (a strict gate during that window boot-loops
+  a partially-configured container — exactly what happened when PR #33
+  first shipped against the still-partial production env).
+* **Strict (``PREFLIGHT_STRICT={true,1,yes,on}``).** Errors raise
+  ``SystemExit(1)`` and the host (Render / Railway / Fly) surfaces a
+  one-line actionable failure in the deploy log — no more digging
+  through asyncpg or jwt tracebacks. Flip this on once every
+  ``# ── REQUIRED ──`` var in ``.env.production.example`` is wired.
 
 Why a Python preflight in the lifespan (and not just the bash script):
 the bash script at ``scripts/preflight-check.sh`` requires the host's
@@ -184,19 +193,47 @@ def _check_database_url_shape(dsn: str) -> PreflightError | None:
     return None
 
 
+_STRICT_ENV_VAR = "PREFLIGHT_STRICT"
+_STRICT_TRUTHY = frozenset({"true", "1", "yes", "on"})
+
+
+def _strict_mode_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """Operator opts into hard-fail behaviour via PREFLIGHT_STRICT={true,1,yes,on}.
+
+    Default (unset / anything else) is warn-only — see ``run_preflight``.
+    """
+
+    snapshot: Mapping[str, str] = os.environ if env is None else env
+    return snapshot.get(_STRICT_ENV_VAR, "").strip().lower() in _STRICT_TRUTHY
+
+
 def run_preflight() -> None:
-    """Top-level entry — parse the example, check the env, exit on failure.
+    """Top-level entry — parse the example, check the env, log or exit.
 
     Called from the FastAPI lifespan when ``APP_ENV == "production"``.
-    Raises:
-      * ``SystemExit(1)`` — operator-fixable misconfig (missing/empty
-        var, placeholder left in, malformed DSN). Surfaced via the
-        host's deploy log.
-      * ``SystemExit(2)`` — packaging bug (example file missing /
-        malformed). Distinct exit code so ops can tell the two apart.
 
-    Returns silently on success; the lifespan continues to
-    ``init_observability`` / ``create_pool``.
+    Two operator-controlled modes:
+
+    * **Warn-only (default).** Errors are logged to stderr with a clear
+      "WARN" prefix, then the function RETURNS — the lifespan continues
+      to ``init_observability`` / ``create_pool``. This is the safe
+      default during a phased Sprint 4 rollout where the secrets matrix
+      lands in waves (Supabase first, Iyzico/Resend/Sentry later); a
+      strict gate during that window would boot-loop a partially-
+      configured container and take the deploy down.
+    * **Strict (opt-in via ``PREFLIGHT_STRICT={true,1,yes,on}``).**
+      Errors trigger ``SystemExit(1)``, exiting the container with an
+      actionable list in the deploy log. Flip this on once every
+      ``# ── REQUIRED ──`` var in ``.env.production.example`` is wired.
+
+    Raises:
+      * ``SystemExit(1)`` — only in strict mode, on any check failure.
+      * ``SystemExit(2)`` — packaging bug (example file missing /
+        malformed). Distinct exit code so ops can tell the two apart;
+        always raised regardless of strict mode because the app can't
+        boot without the example file.
+
+    Returns silently on success or in warn-only mode after logging.
     """
 
     example = _example_path()
@@ -227,18 +264,29 @@ def run_preflight() -> None:
         )
         return
 
+    strict = _strict_mode_enabled()
+    severity = "ERROR" if strict else "WARN"
     print(
-        f"preflight: {len(errors)} env error(s) of {len(required)} required vars:",
+        f"preflight: {len(errors)} env {severity}(s) of {len(required)} required vars:",
         file=sys.stderr,
     )
     for err in errors:
         print(err.format_line(), file=sys.stderr)
+
+    if strict:
+        print(
+            "\npreflight: fix the env in your host's dashboard and redeploy.\n"
+            "preflight: required vars documented in apps/api/.env.production.example",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
     print(
-        "\npreflight: fix the env in your host's dashboard and redeploy.\n"
-        "preflight: required vars documented in apps/api/.env.production.example",
+        "\npreflight: continuing boot in warn-only mode "
+        f"({_STRICT_ENV_VAR} is unset or not truthy).\n"
+        f"preflight: set {_STRICT_ENV_VAR}=true once every required var is wired.",
         file=sys.stderr,
     )
-    raise SystemExit(1)
 
 
 if __name__ == "__main__":  # pragma: no cover
