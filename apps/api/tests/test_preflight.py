@@ -264,8 +264,10 @@ def test_preflight_check_fails_when_one_required_var_missing(
 from src.core.preflight import (  # noqa: E402 — kept with the rest of the module
     PreflightError,
     check_env,
+    run_preflight,
 )
 from src.core.preflight import _example_path as _preflight_example_path  # noqa: E402
+from src.core.preflight import _strict_mode_enabled as _py_strict_mode_enabled  # noqa: E402
 from src.core.preflight import parse_required_keys as _py_parse_required_keys  # noqa: E402
 
 
@@ -364,3 +366,140 @@ def test_preflight_error_format_line_is_actionable() -> None:
     line = PreflightError("DATABASE_URL", "required but not set").format_line()
     assert "DATABASE_URL" in line
     assert "required but not set" in line
+
+
+# ── run_preflight: warn-vs-strict mode (Sprint 4 hotfix) ───────────────
+#
+# PR #33 originally shipped run_preflight() as a hard SystemExit gate. On
+# the Sprint 4 production env — where Supabase secrets land first and
+# Iyzico/Resend/Sentry land in a later wave — that gate boot-looped the
+# container the moment the merge hit Render. These tests pin down the
+# warn-by-default + PREFLIGHT_STRICT opt-in behaviour so a regression to
+# strict-by-default can never quietly recur.
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("true", True),
+        ("TRUE", True),
+        ("True", True),
+        ("1", True),
+        ("yes", True),
+        ("on", True),
+        ("  true  ", True),  # surrounding whitespace tolerated
+        ("false", False),
+        ("0", False),
+        ("no", False),
+        ("off", False),
+        ("", False),
+        ("anything-else", False),
+    ],
+)
+def test_strict_mode_enabled_recognises_truthy_values(value: str, expected: bool) -> None:
+    """The truthy set MUST be explicit. Operators tend to write "yes"/"on"/
+    "1" interchangeably; quietly rejecting any of them would silently keep
+    preflight in warn-only mode and defeat the opt-in."""
+
+    assert _py_strict_mode_enabled({"PREFLIGHT_STRICT": value}) is expected
+
+
+def _write_stub_example(path: Path, required_key: str = "FOO") -> Path:
+    """Build a minimal example file with one REQUIRED key — keeps the
+    run_preflight tests independent of the real .env.production.example
+    drift."""
+
+    path.write_text(
+        f"# ── REQUIRED ──\n{required_key}=<placeholder-for-tests>\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_run_preflight_returns_silently_when_env_complete(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Happy path: every REQUIRED var set, no placeholders, valid DSN
+    shape — preflight logs the success line on stdout and returns."""
+
+    example = _write_stub_example(tmp_path / "stub.env.example")
+    monkeypatch.setattr("src.core.preflight._example_path", lambda: example)
+    monkeypatch.setenv("FOO", "real-value-here")
+    monkeypatch.delenv("PREFLIGHT_STRICT", raising=False)
+
+    run_preflight()
+
+    captured = capsys.readouterr()
+    assert "all 1 required production env vars OK" in captured.out
+    assert captured.err == ""
+
+
+def test_run_preflight_warns_by_default_when_required_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Default (PREFLIGHT_STRICT unset) MUST be warn-only — log errors to
+    stderr but return so the lifespan continues. Anything else takes
+    production down on a partial env, exactly the regression PR #33
+    caused before this hotfix."""
+
+    example = _write_stub_example(tmp_path / "stub.env.example")
+    monkeypatch.setattr("src.core.preflight._example_path", lambda: example)
+    monkeypatch.delenv("FOO", raising=False)
+    monkeypatch.delenv("PREFLIGHT_STRICT", raising=False)
+
+    # MUST NOT raise — the whole point of the hotfix.
+    run_preflight()
+
+    captured = capsys.readouterr()
+    assert "WARN" in captured.err
+    assert "FOO" in captured.err
+    assert "warn-only mode" in captured.err.lower()
+    assert "PREFLIGHT_STRICT" in captured.err  # hint to opt into strict
+
+
+def test_run_preflight_exits_when_strict_mode_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Opt-in strict MUST hard-fail — that's the gate's whole job once
+    the operator has confirmed every var is wired."""
+
+    example = _write_stub_example(tmp_path / "stub.env.example")
+    monkeypatch.setattr("src.core.preflight._example_path", lambda: example)
+    monkeypatch.delenv("FOO", raising=False)
+    monkeypatch.setenv("PREFLIGHT_STRICT", "true")
+
+    with pytest.raises(SystemExit) as exc:
+        run_preflight()
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.err
+    assert "FOO" in captured.err
+    assert "redeploy" in captured.err.lower()
+
+
+def test_run_preflight_exit_2_on_missing_example_regardless_of_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Packaging bug (example file absent) MUST exit 2 in BOTH modes —
+    we can't preflight what we can't read, strict or not."""
+
+    missing = tmp_path / "does-not-exist.env.example"
+    monkeypatch.setattr("src.core.preflight._example_path", lambda: missing)
+    monkeypatch.delenv("PREFLIGHT_STRICT", raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        run_preflight()
+    assert exc.value.code == 2
+
+    monkeypatch.setenv("PREFLIGHT_STRICT", "true")
+    with pytest.raises(SystemExit) as exc:
+        run_preflight()
+    assert exc.value.code == 2
