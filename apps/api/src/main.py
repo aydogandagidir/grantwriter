@@ -47,6 +47,7 @@ from src.core.config import SettingsDep, get_settings
 from src.core.db import create_pool
 from src.core.logging import configure_logging
 from src.core.observability import init_observability
+from src.core.preflight import run_preflight
 
 _PACKAGE_NAME = "bluedev-grantwriter-api"
 
@@ -84,6 +85,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
 
     settings = get_settings()
+    # Production-only preflight: validates every REQUIRED env var is set,
+    # not a `<placeholder>`, and (for DATABASE_URL) not a bracketed
+    # non-IPv6 host. Runs BEFORE observability/db init so a misconfig
+    # exits the container with a one-line message instead of a deep
+    # asyncpg/jwt traceback halfway through startup. No-op in dev/CI
+    # because APP_ENV defaults to "development" there.
+    if settings.app_env == "production":
+        run_preflight()
     # Stand up Sentry + Logtail before opening any other resource so a
     # failure during pool init still ships an error to Sentry.
     app.state.observability_report = init_observability(settings)
