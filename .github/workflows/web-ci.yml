@@ -20,6 +20,7 @@ on:
     paths:
       - "apps/web/**"
       - "packages/**"
+      - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/web-ci.yml"
@@ -27,6 +28,7 @@ on:
     paths:
       - "apps/web/**"
       - "packages/**"
+      - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/web-ci.yml"
