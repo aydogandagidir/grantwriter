@@ -251,3 +251,116 @@ def test_preflight_check_fails_when_one_required_var_missing(
     assert dropped_key in result.stderr, (
         f"missing key {dropped_key} should appear in stderr:\n{result.stderr}"
     )
+
+
+# ── Python preflight module tests (Sprint 4 hardening) ─────────────────
+#
+# These cover ``src/core/preflight.py``, the lifespan-side preflight that
+# always runs in production regardless of how the host's start command is
+# configured. The bash tests above remain because that script is the
+# OPS-side wrapper (CI, pre-push, manual checks); the Python checks below
+# are the runtime safety net.
+
+from src.core.preflight import (  # noqa: E402 — kept with the rest of the module
+    PreflightError,
+    check_env,
+)
+from src.core.preflight import _example_path as _preflight_example_path  # noqa: E402
+from src.core.preflight import parse_required_keys as _py_parse_required_keys  # noqa: E402
+
+
+def test_python_parser_matches_bash_parser_on_example() -> None:
+    """Both implementations MUST agree on which keys are required.
+
+    Drift between the two would silently weaken whichever path the
+    deploy actually uses — the bash one or the Python one. Both walk
+    the example file with equivalent regex; this asserts they produce
+    the same list against the real file.
+    """
+
+    bash_keys = _parse_required_keys(_example_path())
+    py_keys = _py_parse_required_keys(_preflight_example_path())
+    assert py_keys == bash_keys
+    # Sanity floor: every var we burned a deploy cycle on must be here.
+    for sentinel in ("APP_ENV", "DATABASE_URL", "SUPABASE_URL", "SUPABASE_JWT_SECRET"):
+        assert sentinel in py_keys, f"{sentinel} missing from required set"
+
+
+def test_check_env_flags_missing_key() -> None:
+    errors = check_env(["FOO"], env={})
+    assert [(e.key, "not set" in e.message) for e in errors] == [("FOO", True)]
+
+
+def test_check_env_flags_empty_string() -> None:
+    """Set-but-empty is the same failure mode as unset — caught the same."""
+
+    errors = check_env(["FOO"], env={"FOO": ""})
+    assert [(e.key, "not set" in e.message) for e in errors] == [("FOO", True)]
+
+
+def test_check_env_flags_placeholder_substring() -> None:
+    """The exact footgun: an operator pastes the template and forgets to
+    substitute ``<ref>``. Preflight catches it instead of letting it
+    reach Supavisor as ``postgres.<ref>`` and 503 with ``tenant not
+    found``.
+    """
+
+    errors = check_env(
+        ["DATABASE_URL"],
+        env={"DATABASE_URL": "postgresql://postgres.<ref>:pw@host:5432/postgres"},
+    )
+    assert len(errors) == 1
+    assert errors[0].key == "DATABASE_URL"
+    assert "placeholder" in errors[0].message
+    assert "<ref>" in errors[0].message
+
+
+def test_check_env_flags_bracketed_non_ipv6_database_url() -> None:
+    """The other deploy-blocking DSN shape: keeping IPv6-template
+    brackets around a pooler hostname. Crashes ``urllib.parse`` on
+    Python 3.11+ before asyncpg ever sees the DSN.
+    """
+
+    errors = check_env(
+        ["DATABASE_URL"],
+        env={
+            "DATABASE_URL": (
+                "postgresql://u:pw@[aws-1-eu-central-1.pooler.supabase.com]:5432/postgres"
+            )
+        },
+    )
+    assert len(errors) == 1
+    assert errors[0].key == "DATABASE_URL"
+    assert "IPv6" in errors[0].message
+    assert "remove the brackets" in errors[0].message.lower()
+
+
+def test_check_env_allows_real_ipv6_brackets() -> None:
+    """Genuine IPv6 literals legally use ``[...]`` — must NOT flag those."""
+
+    errors = check_env(
+        ["DATABASE_URL"],
+        env={"DATABASE_URL": "postgresql://u:pw@[2406:da18:243:7400::1]:5432/postgres"},
+    )
+    assert errors == []
+
+
+def test_check_env_happy_path_returns_empty() -> None:
+    errors = check_env(
+        ["APP_ENV", "DATABASE_URL"],
+        env={
+            "APP_ENV": "production",
+            "DATABASE_URL": "postgresql://u:pw@host.example.com:5432/db",
+        },
+    )
+    assert errors == []
+
+
+def test_preflight_error_format_line_is_actionable() -> None:
+    """The string surfaced to the deploy log must name BOTH the key and
+    the problem so an operator can act without digging into the source.
+    """
+
+    line = PreflightError("DATABASE_URL", "required but not set").format_line()
+    assert "DATABASE_URL" in line
+    assert "required but not set" in line

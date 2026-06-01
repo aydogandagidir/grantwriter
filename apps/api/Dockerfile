@@ -51,6 +51,13 @@ WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 COPY --from=builder --chown=appuser:appuser /app/src /app/src
 
+# src/core/preflight.py reads this at lifespan start (production only)
+# to validate every REQUIRED env var BEFORE we open the DB pool or
+# Sentry. Without the file in the image, preflight exits 2 (packaging
+# bug) and the deploy refuses to come up — a deliberate fail-loud so
+# this COPY can never silently drift.
+COPY --chown=appuser:appuser .env.production.example /app/.env.production.example
+
 USER appuser
 
 EXPOSE 8000
