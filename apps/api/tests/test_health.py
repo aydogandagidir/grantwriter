@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -65,3 +67,131 @@ async def test_sentry_test_raises_when_dsn_set(
     assert response.status_code == 500
     body = response.json()
     assert body == {"detail": "Internal server error"}
+
+
+# ── /health/db + lifespan-resilience contract ───────────────────────────
+#
+# The lifespan in src/main.py is deliberately tolerant: a DB pool init
+# failure must NOT crash boot. Instead, ``app.state.db_pool`` is left as
+# ``None``, ``app.state.db_pool_init_error`` records the cause, and
+# ``/health`` keeps reporting 200 so the process stays "up" from the
+# orchestrator's perspective. ``/health/db`` is the dedicated probe that
+# distinguishes "process up but DB unreachable" (503) from "DB reachable"
+# (200) — uptime monitors (Better Stack etc.) point at this URL to drive
+# DB-specific alerting.
+#
+# These tests pin that contract without spinning up a real asyncpg pool:
+# the AsyncClient/ASGITransport pair used in the rest of this file does
+# NOT run FastAPI lifespan events, so ``app.state.db_pool`` is whatever
+# we assign before issuing the request.
+
+
+class _FakeAcquireCM:
+    """Minimal ``async with pool.acquire() as conn`` stand-in.
+
+    asyncpg's real ``Pool.acquire()`` returns an async context manager
+    that yields a Connection. We only need ``fetchval`` on the yielded
+    object for the SELECT 1 probe — everything else is irrelevant to
+    /health/db. Using a hand-rolled CM is clearer than wrestling
+    AsyncMock into context-manager shape.
+    """
+
+    def __init__(self, conn: object, *, raise_on_enter: BaseException | None = None) -> None:
+        self._conn = conn
+        self._raise_on_enter = raise_on_enter
+
+    async def __aenter__(self) -> object:
+        if self._raise_on_enter is not None:
+            raise self._raise_on_enter
+        return self._conn
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
+
+
+async def test_health_db_returns_503_when_pool_is_none(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    """No pool ⇒ degraded. Mirrors the "DATABASE_URL unset" boot path."""
+
+    app.state.db_pool = None
+    app.state.db_pool_init_error = "DATABASE_URL not set"
+
+    response = await client.get("/health/db")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["db"]["available"] is False
+    assert body["db"]["init_error"] == "DATABASE_URL not set"
+
+
+async def test_health_db_returns_200_when_pool_acquires(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    """Healthy pool ⇒ 200 + ``db.available = True``.
+
+    The fake pool's ``acquire()`` returns an async CM yielding a fake
+    connection whose ``fetchval`` resolves to ``1`` — matching what
+    asyncpg returns for ``SELECT 1``.
+    """
+
+    conn = MagicMock()
+    conn.fetchval = AsyncMock(return_value=1)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=_FakeAcquireCM(conn))
+    app.state.db_pool = pool
+    app.state.db_pool_init_error = None
+
+    response = await client.get("/health/db")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "db": {"available": True}}
+    conn.fetchval.assert_awaited_once_with("SELECT 1")
+
+
+async def test_health_db_returns_503_on_runtime_error(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    """Pool present but ``acquire()`` blows up ⇒ degraded + runtime_error.
+
+    Models the "DB went away at runtime" path (network flap, Supabase
+    pooler restart, credentials rotated). The probe must report the
+    exception type + message so on-call can grep the response without
+    pulling logs.
+    """
+
+    boom = ConnectionError("upstream down")
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=_FakeAcquireCM(None, raise_on_enter=boom))
+    app.state.db_pool = pool
+    app.state.db_pool_init_error = None
+
+    response = await client.get("/health/db")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["db"]["available"] is False
+    assert "ConnectionError" in body["db"]["runtime_error"]
+    assert "upstream down" in body["db"]["runtime_error"]
+
+
+async def test_health_remains_200_even_when_db_pool_none(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    """The whole point of the graceful-degradation contract.
+
+    ``/health`` is the process-liveness probe — it must NEVER return 503
+    just because the DB pool failed to open. If it did, the orchestrator
+    would restart the container in a crash loop and we'd lose the very
+    /health/db signal we need to diagnose the DB outage.
+    """
+
+    app.state.db_pool = None
+    app.state.db_pool_init_error = "DATABASE_URL not set"
+
+    response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"

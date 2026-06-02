@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -80,8 +81,13 @@ def _resolve_version(fallback: str) -> str:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the asyncpg pool when ``DATABASE_URL`` is configured.
 
-    When unset (test mode, smoke deploys), ``app.state.db_pool`` is ``None``
-    and any DB-bound endpoint returns 503 via ``get_db``.
+    DELIBERATELY RESILIENT: a pool init failure sets ``app.state.db_pool``
+    to ``None`` (matching the existing "DATABASE_URL unset" path) and logs
+    LOUDLY, but does NOT crash boot. The app stays up, ``/health``
+    responds 200, DB-bound routes return 503 via ``get_db``, and
+    ``/health/db`` reports the underlying error so uptime monitors /
+    Better Stack can distinguish "process up but DB unreachable" from
+    "process down".
     """
 
     settings = get_settings()
@@ -96,12 +102,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Stand up Sentry + Logtail before opening any other resource so a
     # failure during pool init still ships an error to Sentry.
     app.state.observability_report = init_observability(settings)
-    if settings.database_url is not None:
-        app.state.db_pool = await create_pool()
-        logger.info("db_pool_opened")
-    else:
+    app.state.db_pool_init_error = None
+    if settings.database_url is None:
         app.state.db_pool = None
+        app.state.db_pool_init_error = "DATABASE_URL not set"
         logger.warning("db_pool_skipped: DATABASE_URL not set")
+    else:
+        try:
+            app.state.db_pool = await create_pool()
+            logger.info("db_pool_opened")
+        # Catching bare Exception is intentional: every form of pool-init
+        # failure (asyncpg.exceptions.*, asyncio.TimeoutError, OSError, DNS,
+        # auth, …) is upstream and operator-fixable. Keep the app up so
+        # /health stays 200 and /health/db reports the cause; never let an
+        # upstream DB issue boot-loop the container.
+        except Exception as exc:
+            app.state.db_pool = None
+            app.state.db_pool_init_error = f"{type(exc).__name__}: {exc}"
+            logger.error(
+                "db_pool_init_failed",
+                extra={
+                    "event": "db_pool_init_failed",
+                    "exc_type": type(exc).__name__,
+                    "exc_repr": repr(exc),
+                },
+                exc_info=exc,
+            )
     try:
         yield
     finally:
@@ -163,6 +189,42 @@ def create_app() -> FastAPI:
             "status": "ok",
             "version": _resolve_version(settings.app_version),
         }
+
+    @app.get("/health/db", tags=["meta"])
+    async def health_db(request: Request) -> JSONResponse:
+        """DB-aware health probe — Better Stack / uptime monitors hit this to know
+        whether the app can actually serve DB-bound traffic, distinct from
+        /health which only verifies the process is up."""
+        pool: asyncpg.Pool | None = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "degraded",
+                    "db": {
+                        "available": False,
+                        "init_error": getattr(request.app.state, "db_pool_init_error", "unknown"),
+                    },
+                },
+            )
+        try:
+            async with pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+        # Catch-all: any acquire/query failure (pool exhausted, upstream
+        # dropped, auth rotated) becomes a degraded-but-reachable 503 so
+        # the uptime monitor sees "DB unhappy" instead of "endpoint gone".
+        except Exception as exc:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "degraded",
+                    "db": {"available": False, "runtime_error": f"{type(exc).__name__}: {exc}"},
+                },
+            )
+        return JSONResponse(
+            status_code=200,
+            content={"status": "ok", "db": {"available": True}},
+        )
 
     @app.get("/health/sentry-test", tags=["meta"])
     async def health_sentry_test(settings: SettingsDep) -> dict[str, Any]:
