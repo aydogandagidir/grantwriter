@@ -6,15 +6,20 @@ The pool is created at app startup (see `src/main.py` lifespan) and stored on
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
+import logging
 import re
+import time
 from collections.abc import AsyncIterator
 
 import asyncpg
-from fastapi import HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status
 from pgvector.asyncpg import register_vector
 
 from src.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 # NOTE: ``Request`` MUST be imported at runtime (not under TYPE_CHECKING) —
 # FastAPI inspects the parameter annotation of ``get_db`` to recognise it
@@ -92,6 +97,106 @@ async def create_pool() -> asyncpg.Pool:
     if pool is None:
         raise RuntimeError("asyncpg.create_pool returned None")
     return pool
+
+
+# ── Lazy pool retry (self-healing on transient upstream failure) ──────
+#
+# When create_pool() fails at lifespan startup (Supabase paused, DNS
+# hiccup, transient auth error), the resilient lifespan sets
+# ``app.state.db_pool = None`` and the container stays up so /health
+# can still report. Without this helper the running app NEVER retries —
+# it stays "DB unavailable" until the operator triggers a redeploy,
+# even if the upstream came back five minutes later.
+#
+# ``try_init_pool`` is called from /health/db: when an uptime monitor
+# (or a manual probe) hits the endpoint, we attempt one create_pool
+# call. On success the pool is wired into app.state for every
+# subsequent ``get_db`` to use; the live container self-heals without
+# a redeploy. A cooldown caps the load on a still-broken upstream and
+# an asyncio.Lock serializes concurrent retries so we never spawn two
+# create_pool tasks racing for the same state.
+
+_LAZY_INIT_LOCK: asyncio.Lock | None = None
+_LAZY_RETRY_MIN_INTERVAL_S = 30.0
+
+
+def _get_lazy_init_lock() -> asyncio.Lock:
+    """Build the module-level lock lazily.
+
+    Constructing ``asyncio.Lock`` at import time binds it to whatever
+    loop happens to be current then — under pytest-asyncio that's
+    often a stale loop and the lock raises ``RuntimeError: ... is
+    bound to a different event loop`` later. Build-on-first-use ties
+    it to the running loop.
+    """
+
+    global _LAZY_INIT_LOCK  # noqa: PLW0603 — deliberate singleton lazy-init; binding the lock to whichever loop is current on first use avoids "Lock bound to a different event loop" under pytest-asyncio
+    if _LAZY_INIT_LOCK is None:
+        _LAZY_INIT_LOCK = asyncio.Lock()
+    return _LAZY_INIT_LOCK
+
+
+async def try_init_pool(app: FastAPI) -> asyncpg.Pool | None:
+    """Return the app's asyncpg pool, lazily attempting (re-)init if None.
+
+    Returns the (newly or already) initialised pool, or ``None`` on
+    failure (with ``app.state.db_pool_init_error`` populated). Callers
+    decide whether to surface the failure or carry on.
+
+    Cooldown: requests within ``_LAZY_RETRY_MIN_INTERVAL_S`` of the
+    last attempt get ``None`` back immediately without a retry. Stops
+    a steady stream of uptime-monitor probes from hammering a still-
+    broken upstream.
+
+    Concurrency: a module-level ``asyncio.Lock`` ensures at most one
+    create_pool task is in flight; the rest wait for it and read the
+    final ``app.state.db_pool``.
+    """
+
+    pool = getattr(app.state, "db_pool", None)
+    if pool is not None:
+        return pool
+
+    settings = get_settings()
+    if settings.database_url is None:
+        # Nothing to retry — the example/secret matrix is the fix.
+        return None
+
+    now = time.monotonic()
+    last = getattr(app.state, "db_pool_last_attempt", None)
+    if last is not None and now - last < _LAZY_RETRY_MIN_INTERVAL_S:
+        return None
+
+    async with _get_lazy_init_lock():
+        # Re-check inside the lock — another coroutine may have just
+        # succeeded.
+        pool = getattr(app.state, "db_pool", None)
+        if pool is not None:
+            return pool
+
+        app.state.db_pool_last_attempt = time.monotonic()
+        try:
+            pool = await create_pool()
+        except Exception as exc:
+            # Same catch-all rationale as the lifespan: every upstream
+            # failure mode (asyncpg.exceptions.*, OSError, DNS, auth, …)
+            # is operator-fixable and must not crash the running app.
+            app.state.db_pool_init_error = f"{type(exc).__name__}: {exc}"
+            logger.error(
+                "db_pool_lazy_init_failed",
+                extra={
+                    "event": "db_pool_lazy_init_failed",
+                    "exc_type": type(exc).__name__,
+                    "exc_repr": repr(exc),
+                },
+                exc_info=exc,
+            )
+            return None
+
+        app.state.db_pool = pool
+        app.state.db_pool_init_error = None
+        logger.info("db_pool_lazily_initialised")
+        return pool
 
 
 async def get_db(request: Request) -> AsyncIterator[asyncpg.Connection]:

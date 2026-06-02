@@ -12,7 +12,6 @@ from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
-import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -194,8 +193,22 @@ def create_app() -> FastAPI:
     async def health_db(request: Request) -> JSONResponse:
         """DB-aware health probe — Better Stack / uptime monitors hit this to know
         whether the app can actually serve DB-bound traffic, distinct from
-        /health which only verifies the process is up."""
-        pool: asyncpg.Pool | None = getattr(request.app.state, "db_pool", None)
+        /health which only verifies the process is up.
+
+        Self-healing: when the boot-time pool is ``None`` (Supabase paused,
+        DNS hiccup at startup, transient auth error), each hit attempts a
+        lazy re-init via ``try_init_pool``. A 30s cooldown caps load on a
+        still-broken upstream and an asyncio.Lock serializes concurrent
+        retries. When the upstream comes back, the next probe (or a real
+        request) sees the new pool — no operator redeploy required.
+        """
+
+        # Local import: try_init_pool depends on FastAPI types and is only
+        # touched by this one endpoint, so keep the symbol out of the
+        # module-level import graph that route handlers spin up.
+        from src.core.db import try_init_pool
+
+        pool = await try_init_pool(request.app)
         if pool is None:
             return JSONResponse(
                 status_code=503,
