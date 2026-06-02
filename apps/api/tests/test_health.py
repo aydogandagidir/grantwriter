@@ -110,9 +110,22 @@ class _FakeAcquireCM:
 
 
 async def test_health_db_returns_503_when_pool_is_none(
-    app: FastAPI, client: AsyncClient
+    app: FastAPI,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No pool ⇒ degraded. Mirrors the "DATABASE_URL unset" boot path."""
+    """No pool + no DSN to retry ⇒ degraded.
+
+    Monkeypatches get_settings so the new lazy retry in
+    ``try_init_pool`` sees no DSN to try — mirroring the real
+    "DATABASE_URL unset" boot path. Without this patch CI's
+    DATABASE_URL would let try_init_pool actually create a pool
+    against the test DB and flip this to a 200.
+    """
+
+    settings_stub = MagicMock()
+    settings_stub.database_url = None
+    monkeypatch.setattr("src.core.db.get_settings", lambda: settings_stub)
 
     app.state.db_pool = None
     app.state.db_pool_init_error = "DATABASE_URL not set"
@@ -124,6 +137,50 @@ async def test_health_db_returns_503_when_pool_is_none(
     assert body["status"] == "degraded"
     assert body["db"]["available"] is False
     assert body["db"]["init_error"] == "DATABASE_URL not set"
+
+
+async def test_health_db_self_heals_when_lazy_init_succeeds(
+    app: FastAPI,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When boot left ``db_pool=None`` but the upstream is now reachable,
+    a single ``/health/db`` hit lazily creates the pool and returns 200.
+
+    This is the self-healing path that lets an uptime monitor (or a
+    manual probe) recover the running app after a transient Supabase
+    pause / DNS hiccup, without requiring an operator redeploy. The
+    lazy init helper updates app.state.db_pool + clears
+    db_pool_init_error so every subsequent get_db sees the fresh pool.
+    """
+
+    conn = MagicMock()
+    conn.fetchval = AsyncMock(return_value=1)
+    fake_pool = MagicMock()
+    fake_pool.acquire = MagicMock(return_value=_FakeAcquireCM(conn))
+
+    async def fake_create_pool() -> object:
+        return fake_pool
+
+    monkeypatch.setattr("src.core.db.create_pool", fake_create_pool)
+    settings_stub = MagicMock()
+    settings_stub.database_url = MagicMock()  # any truthy non-None
+    monkeypatch.setattr("src.core.db.get_settings", lambda: settings_stub)
+
+    # Boot left the pool dead with an upstream error captured. Reset the
+    # cooldown anchor so the test isn't dependent on module-level state
+    # from earlier tests.
+    app.state.db_pool = None
+    app.state.db_pool_init_error = "InternalServerError: tenant not found"
+    app.state.db_pool_last_attempt = None
+
+    response = await client.get("/health/db")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "db": {"available": True}}
+    # Self-healed: state mutations visible to every subsequent get_db.
+    assert app.state.db_pool is fake_pool
+    assert app.state.db_pool_init_error is None
 
 
 async def test_health_db_returns_200_when_pool_acquires(
