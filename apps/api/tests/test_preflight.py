@@ -225,7 +225,10 @@ def test_preflight_check_passes_with_full_env(
         f"preflight exited {result.returncode}; stderr:\n{result.stderr}"
     )
     assert "all" in result.stdout.lower()
-    assert "required production env vars set" in result.stdout
+    # Match the stable part of the success line, not the "set"/"OK" word —
+    # the bash script's success message tracks the Python preflight's
+    # wording ("... env vars OK") and shouldn't be re-broken on parity tweaks.
+    assert "required production env vars" in result.stdout
 
 
 @pytest.mark.skipif(not _bash_available(), reason="bash not on PATH")
@@ -250,6 +253,77 @@ def test_preflight_check_fails_when_one_required_var_missing(
     )
     assert dropped_key in result.stderr, (
         f"missing key {dropped_key} should appear in stderr:\n{result.stderr}"
+    )
+
+
+# ── Bash ↔ Python parity: placeholder + DSN-bracket detection ──────────
+#
+# preflight-check.sh now mirrors src/core/preflight.py's three-layer
+# check (set / placeholder / bracketed-host). These assert the bash side
+# catches the same two footguns the Python side does, so CI / pre-push
+# (which run the bash script) fail on the same inputs the lifespan would.
+
+_skip_no_bash = pytest.mark.skipif(not _bash_available(), reason="bash not on PATH")
+_skip_win_nonbash = pytest.mark.skipif(
+    sys.platform == "win32"
+    and shutil.which("bash") is not None
+    and "git" not in (shutil.which("bash") or "").lower(),
+    reason="non-Git-Bash on Windows can't run POSIX scripts",
+)
+
+
+@_skip_no_bash
+@_skip_win_nonbash
+def test_bash_preflight_flags_placeholder(
+    full_required_env: dict[str, str],
+) -> None:
+    """A leftover ``<ref>`` placeholder MUST fail the bash check too —
+    parity with the Python preflight that caught the prod ``postgres.<ref>``."""
+
+    env = dict(full_required_env)
+    env["DATABASE_URL"] = "postgresql://postgres.<ref>:pw@host:5432/postgres"
+
+    result = _run_preflight_with_env(env)
+    assert result.returncode == 1, f"expected exit 1; stderr:\n{result.stderr}"
+    assert "DATABASE_URL" in result.stderr
+    assert "placeholder" in result.stderr
+    assert "<ref>" in result.stderr
+
+
+@_skip_no_bash
+@_skip_win_nonbash
+def test_bash_preflight_flags_bracketed_hostname(
+    full_required_env: dict[str, str],
+) -> None:
+    """A pooler hostname left in IPv6-template brackets MUST fail — this
+    is the urlsplit-crash DSN, caught before the container even boots."""
+
+    env = dict(full_required_env)
+    env["DATABASE_URL"] = (
+        "postgresql://u:pw@[aws-1-eu-central-1.pooler.supabase.com]:5432/postgres"
+    )
+
+    result = _run_preflight_with_env(env)
+    assert result.returncode == 1, f"expected exit 1; stderr:\n{result.stderr}"
+    assert "DATABASE_URL" in result.stderr
+    assert "IPv6" in result.stderr
+
+
+@_skip_no_bash
+@_skip_win_nonbash
+def test_bash_preflight_allows_real_ipv6_brackets(
+    full_required_env: dict[str, str],
+) -> None:
+    """A genuine IPv6 literal legally uses [...] — the bash check MUST NOT
+    flag it (matches the Python side's ipaddress allowance). With every
+    other required var present, this is a clean exit 0."""
+
+    env = dict(full_required_env)
+    env["DATABASE_URL"] = "postgresql://u:pw@[2406:da18:243:7400::1]:5432/postgres"
+
+    result = _run_preflight_with_env(env)
+    assert result.returncode == 0, (
+        f"real IPv6 DSN should pass; got {result.returncode}; stderr:\n{result.stderr}"
     )
 
 
