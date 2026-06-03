@@ -1,0 +1,90 @@
+# Render Blueprint — infrastructure-as-code for the backend service.
+#
+# Replaces infra/railway.json: production deploys on RENDER, not Railway,
+# so the Railway config was stale + misleading (its start command also
+# referenced scripts/preflight-check.sh, which isn't in the Docker build
+# context apps/api/ — it would have failed anyway).
+#
+# NOT auto-applied. The current prod service was created via the Render
+# dashboard and keeps using that config. This file:
+#   1. Documents the deployed setup as version-controlled IaC.
+#   2. Is ready to activate as a Render Blueprint
+#      (Dashboard → Blueprints → New Blueprint → point at this repo).
+#   3. Prevents config drift — the deployed shape now lives in git.
+#
+# Boot validation note: there is intentionally NO startCommand override.
+# The Dockerfile CMD (uvicorn src.main:app) is authoritative, and the
+# production preflight runs INSIDE the FastAPI lifespan (src/core/
+# preflight.py) — in-process, regardless of how the host starts the
+# container. So we don't wrap the start command in the bash preflight
+# the way railway.json did.
+
+services:
+  - type: web
+    name: grantwriter-api
+    runtime: docker
+    repo: https://github.com/aydogandagidir/grantwriter
+    branch: main
+    # Dockerfile COPYs are relative to apps/api/ (COPY pyproject.toml ./,
+    # COPY src ./src, COPY .env.production.example …), so the build
+    # context MUST be apps/api, not the repo root.
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    plan: free
+    # Supabase project lives in eu-central-1 (Frankfurt); colocating the
+    # API minimises DB round-trip latency.
+    region: frankfurt
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # ── Non-secret config (safe to commit) ──────────────────────────
+      - key: APP_ENV
+        value: production
+      # Preflight stays warn-only until every REQUIRED secret below is
+      # wired. Flip to "true" in the dashboard (or here) for the strict
+      # boot gate once the secret matrix is complete — see
+      # docs/11-operations-runbook.md §6.
+      - key: PREFLIGHT_STRICT
+        value: "false"
+      - key: LOG_LEVEL
+        value: INFO
+      # Render injects the deployed commit SHA; surface it to Sentry so
+      # errors group by release.
+      - key: SENTRY_RELEASE
+        fromService:
+          type: web
+          name: grantwriter-api
+          property: commitSha
+      # ── Secrets (set in the Render dashboard; never committed) ───────
+      # Full descriptions: apps/api/.env.production.example.
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LLM_MASTER_ENCRYPTION_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: IYZICO_API_KEY
+        sync: false
+      - key: IYZICO_SECRET_KEY
+        sync: false
+      - key: IYZICO_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: LOGTAIL_TOKEN
+        sync: false
+      # CORS — the frontend origin(s) allowed to call this API.
+      - key: CORS_ORIGINS
+        sync: false
