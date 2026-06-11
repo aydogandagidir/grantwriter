@@ -11,11 +11,14 @@
 | Katman | Servis | URL |
 |---|---|---|
 | Frontend | Vercel (`grantwriter` projesi) | `https://grantwriter-gamma.vercel.app` |
-| Backend API | Render (`grantwriter-api`) | `https://grantwriter-api.onrender.com` |
+| Backend API | Render (`grantwriter-api`, web/free) | `https://grantwriter-api.onrender.com` |
+| Celery worker | Render (`grantwriter-worker`, worker/starter) | — (HTTP yok; log + `/health/worker` ile izlenir) |
+| Redis | Render Key Value (`grantwriter-kv`, free 25MB) | internal `redis://red-…:6379` |
 | Database + Auth + Storage | Supabase (proje ref `amskzrdscxltcruqxaeb`) | `https://<ref>.supabase.co` |
 
-- **Render free tier** kullanılıyor → instance idle'da spin-down olur; ilk istek cold-start tetikler (~10-50 sn). 503/timeout gördüğünüzde önce bunu eleyin.
-- **Supabase free tier** → uzun inaktivitede proje **otomatik askıya alınır (paused)**; dashboard'dan manuel "Restore" gerekir.
+- **Render free tier (web)** → instance idle'da spin-down olur; ilk istek cold-start tetikler (~10-50 sn). 503/timeout gördüğünüzde önce bunu eleyin. (Worker starter planda — spin-down olmaz.)
+- **Supabase free tier** → uzun inaktivitede proje **otomatik askıya alınır (paused)**; dashboard'dan manuel "Restore" gerekir. **Worker'ı da vurur:** task'lar `create_pool`'da FAILURE olur (yalnız web self-heal'li); restore sonrası job'ı yeniden tetikleyin.
+- **Key Value free tier** → persistence YOK; restart kuyruk + result state'ini siler (bkz. Bölüm 5w).
 
 ---
 
@@ -27,6 +30,7 @@
 |---|---|---|
 | `GET /health` | Process ayakta, uvicorn cevap veriyor | ❌ Hayır |
 | `GET /health/db` | DB pool açık + `SELECT 1` çalışıyor | ✅ Evet |
+| `GET /health/worker` | Celery worker broker üzerinden ping'e pong veriyor (generate/export kuyruğu canlı) | ❌ (Redis'e dokunur) |
 
 **Tanı için ikisini birlikte okuyun:**
 
@@ -121,6 +125,40 @@ postgresql://postgres.<ref>:<şifre>@aws-1-<region>.pooler.supabase.com:5432/pos
 
 ---
 
+## 5w. Worker / Kuyruk Incident'ları
+
+> Generate + export Celery worker'da koşar (`grantwriter-worker`). Worker'a HTTP ile erişilemez; gözlem yüzeyi = Render worker logları + `GET /health/worker` (web servisi broker üzerinden worker'a ping atar).
+
+### 5w-a. Job sonsuza dek "queued"
+**Belirti:** Generate/Export tetiklendi, `/api/v1/jobs/{id}` hep `queued`; UI spinner'da kalır.
+**Tanı sırası:**
+1. `curl .../health/worker` →
+   - `503 broker_not_configured` → web'de `REDIS_URL` eksik.
+   - `503 no_workers_responded` → worker ölü/deploy olmamış → Render worker servisine bak (Logs).
+   - `503 error: ConnectionError…` → Key Value erişilemiyor (restart/silinmiş).
+   - `200` ama job hâlâ queued → aşağıya bak (TTL veya KV restart).
+2. **KV restart şüphesi:** Key Value free tier'da persistence YOK — restart kuyruğu VE result state'ini siler. Enqueue edilmiş ama işlenmemiş job'lar kaybolur; eski job id'leri sonsuza dek "queued" görünür. **Çözüm:** job'ı yeniden tetikle (Generate'e tekrar bas). Gerçek yük öncesi KV planını yükselt.
+3. **Result TTL:** Celery result'ları 1 gün sonra düşer (`result_expires` default) — 24 saatten eski job id'si her zaman "queued" okur. Job'ları hemen poll edin.
+
+### 5w-b. Redeploy-mid-saga (çift LLM masrafı riski)
+**Belirti:** Bir generate koşarken main'e merge → Render worker'ı SIGTERM'ler → job yarıda kalır; ~1 saat sonra kendiliğinden YENİDEN koşar.
+**Neden:** `task_acks_late=True` + Redis `visibility_timeout` (default 3600s) — öldürülen task ack'lenmediği için timeout sonrası yeniden teslim edilir. "Biter ama geç + LLM maliyeti iki kez."
+**Kural:** Pilot/demo penceresinde main'e merge DONDUR. `visibility_timeout`'u saga süresinin (5-15 dk) altına ASLA çekme — uzun saga'lar daha koşarken yeniden teslim edilip çift koşar.
+
+### 5w-c. Worker task'ları FAILURE: `RuntimeError: SUPABASE_URL…` / asyncpg hataları
+**Belirti:** `/jobs/{id}` → `failed`; worker logunda env/DB hatası.
+**Neden:** Worker env matrisi eksik (web ile AYRI servis — env'ler otomatik paylaşılmaz!) veya Supabase paused (worker self-heal'siz).
+**Çözüm:** Worker → Environment'a eksik değişkeni ekle (matris: `infra/render.yaml` worker bloğu) → redeploy → job'ı yeniden tetikle. Supabase paused ise restore + yeniden tetikle.
+
+### 5w-d. KV dolu (`OOM command not allowed`)
+**Belirti:** Enqueue/SSE yazmaları `OOM command not allowed when used memory > 'maxmemory'` ile patlar.
+**Neden:** 25MB free KV doldu; `noeviction` politikası (bilerek — kuyruk task'ı evict edilemez) yazmaları reddediyor.
+**Çözüm:** KV planını yükselt; geçici: `redis-cli`'dan eski citation-cache key'lerini temizle.
+
+> **Not:** Lifespan preflight'ı yalnız **web** servisinde koşar (FastAPI lifecycle). Worker'da env eksikse hata ilk task'ta yüzeye çıkar (5w-c) — worker env'ini değiştirince log'daki ilk task sonucunu kontrol edin.
+
+---
+
 ## 6. Production Env Var Matrisi
 
 Tam liste ve açıklamalar: `apps/api/.env.production.example` (tek doğruluk kaynağı; `test_preflight.py` Settings ile drift'i engeller).
@@ -198,10 +236,14 @@ Detay: `infra/supabase/README.md`.
 Her production deploy'dan sonra:
 1. `bash scripts/smoke.sh` → 3/3 ✓.
 2. `curl -s .../health/db` → `{"status":"ok","db":{"available":true}}`.
-3. Public DB probe → `/api/v1/invitations/<bogus>` → 404 (full stack).
-4. Render Logs → `db_pool_opened` veya warn-mode mesajı; `preflight` satırı.
-5. (varsa) Sentry → yeni release tag'i göründü mü.
+3. `curl -s .../health/worker` → `{"status":"ok","worker":{"available":true,…}}` (worker fleet pong veriyor).
+4. Public DB probe → `/api/v1/invitations/<bogus>` → 404 (full stack).
+5. Render Logs (web) → `db_pool_opened` veya warn-mode mesajı; `preflight` satırı.
+6. Render Logs (worker) → `celery@… ready.` + `[tasks]` altında 4 modül.
+7. (varsa) Sentry → yeni release tag'i göründü mü.
+
+> Tek komut alternatifi: `bash scripts/pilot-readiness.sh` (worker dahil tüm probe'lar).
 
 ---
 
-**Son güncelleme:** 2026-06. Prod bring-up incident zincirinden (PR #36–#39) damıtıldı. Yeni bir failure modu yaşanırsa bu kataloğa (Bölüm 5) ekleyin.
+**Son güncelleme:** 2026-06. Prod bring-up incident zincirinden (PR #36–#39) ve worker topolojisi kurulumundan damıtıldı. Yeni bir failure modu yaşanırsa kataloğa (Bölüm 5 / 5w) ekleyin.
