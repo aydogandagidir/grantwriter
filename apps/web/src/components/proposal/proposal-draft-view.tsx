@@ -2,6 +2,7 @@
 
 import { Download, FileText, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useState } from 'react';
 
 import type { ProposalDetail } from '@bluedev/shared-types';
 
@@ -14,7 +15,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
-import { useExportProposal } from '@/lib/api/queries';
+import { useExportProposal, useJob } from '@/lib/api/queries';
+
+import type { JobStatusResponse } from '@/lib/api/queries';
 
 import { ProposalSectionEditor } from './tiptap/editor';
 
@@ -37,6 +40,11 @@ export function ProposalDraftView({ proposal }: { proposal: ProposalDetail }) {
   const tEditor = useTranslations('proposalEditor');
   const { toast } = useToast();
   const exportMutation = useExportProposal(proposal.id);
+  // Export is a Celery job — poll it until terminal, then surface the
+  // signed download URL inline (without this the operator had to curl
+  // /jobs/{id} by hand to retrieve the file).
+  const [exportJobId, setExportJobId] = useState<string | null>(null);
+  const exportJob = useJob(exportJobId);
 
   const draft = proposal.draft as {
     excellence_md?: string;
@@ -64,6 +72,7 @@ export function ProposalDraftView({ proposal }: { proposal: ProposalDetail }) {
   const triggerExport = async (format: 'docx' | 'xlsx') => {
     try {
       const result = await exportMutation.mutateAsync(format);
+      setExportJobId(result.job_id);
       toast({ title: t('exportQueued', { jobId: result.job_id }) });
     } catch {
       // ApiError thrown → toaster picks it up via the global handler
@@ -111,6 +120,7 @@ export function ProposalDraftView({ proposal }: { proposal: ProposalDetail }) {
           ) : null}
         </div>
       </CardHeader>
+      {exportJobId ? <ExportJobRow job={exportJob.data} t={t} /> : null}
       <CardContent className="space-y-6">
         <EditorSection
           proposalId={proposal.id}
@@ -135,6 +145,66 @@ export function ProposalDraftView({ proposal }: { proposal: ProposalDetail }) {
         />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Inline status row for an enqueued export job.
+ *
+ * queued/running (and the first fetch in flight) → spinner;
+ * failed → typed error; completed → signed-URL download button.
+ * ``exportNoUrl`` covers the worker's "skipped" result (e.g. XLSX for
+ * a programme with no lump-sum workbook) and any future result shape
+ * without a ``signed_url``.
+ */
+function ExportJobRow({
+  job,
+  t,
+}: {
+  job: JobStatusResponse | undefined;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  if (!job || job.status === 'queued' || job.status === 'running') {
+    return (
+      <div
+        className="flex items-center gap-2 px-6 pb-3 text-sm text-muted-foreground"
+        data-testid="export-status"
+      >
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        {t('exportPreparing')}
+      </div>
+    );
+  }
+  if (job.status === 'failed') {
+    return (
+      <div className="px-6 pb-3 text-sm text-destructive" data-testid="export-status">
+        {t('exportFailed', { error: job.error ?? 'unknown' })}
+      </div>
+    );
+  }
+  const signedUrl =
+    typeof job.result?.signed_url === 'string' ? job.result.signed_url : null;
+  if (!signedUrl) {
+    return (
+      <div className="px-6 pb-3 text-sm text-muted-foreground" data-testid="export-status">
+        {t('exportNoUrl')}
+      </div>
+    );
+  }
+  return (
+    <div className="px-6 pb-3" data-testid="export-status">
+      <Button asChild variant="outline" size="sm" className="gap-2">
+        <a
+          href={signedUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="export-download"
+        >
+          <Download className="h-4 w-4" aria-hidden="true" />
+          {t('exportDownload')}
+        </a>
+      </Button>
+    </div>
   );
 }
 

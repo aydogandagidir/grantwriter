@@ -463,7 +463,11 @@
     "exportDocx": "Export DOCX",
     "exportXlsx": "Export Lump Sum XLSX",
     "exporting": "Sending to export…",
-    "exportQueued": "Export queued (job {jobId}). Check the jobs API for the download URL."
+    "exportQueued": "Export queued (job {jobId}). Check the jobs API for the download URL.",
+    "exportPreparing": "Preparing your file…",
+    "exportDownload": "Download file",
+    "exportFailed": "Export failed: {error}",
+    "exportNoUrl": "Export finished but produced no file for this programme."
   },
   "proposalEditor": {
     "placeholder": "Start writing or select text and pick an AI command…",
@@ -489,7 +493,10 @@
     "saga_failed": "Saga failed: {error}",
     "connecting": "Connecting to live updates…",
     "noEventsYet": "Waiting for the first event…",
-    "closed": "Stream closed."
+    "closed": "Stream closed.",
+    "jobQueued": "Queued — waiting for a worker…",
+    "jobRunning": "Generation in progress (this can take 5-15 minutes)…",
+    "jobFailed": "Generation failed: {error}"
   },
   "validation": {
     "title": "Compliance & citations",
