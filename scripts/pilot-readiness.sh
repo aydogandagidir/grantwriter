@@ -7,12 +7,13 @@
 #   - DB reachable          (/health/db 200 — generate/export need it)
 #   - schema migrated       (public DB-bound probe → 404, not 503/500)
 #   - auth actually gates    (protected endpoint without a token → 401/403)
+#   - worker fleet alive     (/health/worker 200 — generate/export consume there)
 #   - frontend served        (/ 200, /icon.svg 200)
 #
-# What it CANNOT check (needs real secrets the operator wires in the
-# dashboard): the LLM keys that the draft-generation saga calls. Those
-# only exercise on a real authenticated generate request — see the
-# reminder this script prints at the end.
+# What it CANNOT check (needs real secrets / dashboard state): the LLM
+# keys the draft saga calls (exercised only by a real authenticated
+# generate) and the Supabase Storage 'exports' bucket — see the reminder
+# this script prints at the end.
 #
 # Usage:
 #   bash scripts/pilot-readiness.sh
@@ -82,7 +83,15 @@ expect_status        "schema (probe)   /invitations"    "$API_URL/api/v1/invitat
 #    refused (401 or 403 depending on the bearer scheme), never 200.
 expect_one_of        "auth gate        /me (no token)"  "$API_URL/api/v1/me" "401" "403"
 
-# 5. Frontend served + favicon (the original console-404 fix).
+# 5. Worker fleet — generate/export run on Celery; no pong ⇒ jobs hang
+#    forever. HARD FAIL by design: this script's contract is "every
+#    checkable precondition for a full E2E run", and a missing worker is
+#    exactly the silent failure that motivated the topology sprint.
+#    Before the worker service is deployed this row prints ✗ — that is
+#    signal, not noise.
+expect_body_contains "worker           /health/worker"  "$API_URL/health/worker" "200" '"available":true'
+
+# 6. Frontend served + favicon (the original console-404 fix).
 expect_body_contains "frontend         /"               "$FRONTEND_URL/"         "200" "Bluedev"
 expect_status        "frontend favicon /icon.svg"       "$FRONTEND_URL/icon.svg" "200"
 
@@ -100,9 +109,11 @@ echo ""
 echo "All checkable preconditions GREEN."
 echo ""
 echo "⚠ Reminder — not verifiable from here, do before the pilot run:"
-echo "  • LLM keys (ANTHROPIC_API_KEY, OPENAI_API_KEY) set in Render —"
-echo "    the draft-generation saga calls them on a real generate request."
+echo "  • LLM keys (ANTHROPIC_API_KEY, OPENAI_API_KEY) set on BOTH Render"
+echo "    services — web AND worker have separate env matrices; the saga"
+echo "    calls them from the worker on a real generate request."
+echo "  • Supabase Storage bucket 'exports' exists (private) — DOCX/XLSX"
+echo "    uploads land there; no migration creates it."
 echo "  • Once every REQUIRED var is wired, set PREFLIGHT_STRICT=true."
-echo "  • Then drive the live pilot E2E: signup → onboarding → org profile"
-echo "    → call → brief → generate → draft → export DOCX."
+echo "  • Then drive the live pilot E2E per docs/12-pilot-e2e-script.md."
 exit 0
