@@ -134,6 +134,7 @@ export const queryKeys = {
   organizationProfile: ['organization', 'profile'] as const,
   proposalList: ['proposals'] as const,
   proposal: (id: string) => ['proposals', id] as const,
+  job: (id: string) => ['jobs', id] as const,
 };
 
 // ── /me ─────────────────────────────────────────────────────────────────
@@ -754,8 +755,8 @@ export function useGenerateProposal(id: string) {
 
 /**
  * Enqueue a DOCX or XLSX export. Returns the Celery job id; the FE
- * polls `/api/v1/jobs/{id}` for the signed URL once the worker uploads
- * the file to Supabase Storage.
+ * polls `/api/v1/jobs/{id}` (via `useJob`) for the signed URL once the
+ * worker uploads the file to Supabase Storage.
  */
 export function useExportProposal(id: string) {
   return useMutation({
@@ -764,5 +765,59 @@ export function useExportProposal(id: string) {
         method: 'POST',
         body: { format },
       }),
+  });
+}
+
+// ── /jobs — Celery job polling ──────────────────────────────────────────
+
+/** Mirror of `apps/api/src/api/routes/jobs.py::JobStatusResponse`. */
+export interface JobStatusResponse {
+  id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+const JOB_POLL_INTERVAL_MS = 3000;
+
+/**
+ * Refetch cadence for `useJob` — exported for unit tests.
+ *
+ * `false` stops TanStack's interval entirely once the job is terminal;
+ * anything else keeps polling every 3s. `undefined` data (first fetch
+ * in flight) keeps polling so a slow first response can't wedge the
+ * loop into "never started".
+ */
+export function jobPollInterval(data: JobStatusResponse | undefined): number | false {
+  if (data && (data.status === 'completed' || data.status === 'failed')) {
+    return false;
+  }
+  return JOB_POLL_INTERVAL_MS;
+}
+
+/**
+ * Poll a Celery job until it reaches a terminal state.
+ *
+ * Why polling is the PRIMARY progress channel (not just a fallback):
+ * the SSE stream endpoint requires a bearer token, and the browser's
+ * native `EventSource` cannot attach Authorization headers — so the
+ * live stream 403s in production today. `/jobs/{id}` goes through the
+ * normal authenticated `apiClient`, works everywhere, and (with
+ * `task_track_started` on the worker) distinguishes queued → running →
+ * completed/failed.
+ *
+ * Pass `null` to park the hook (no fetch, no interval) — callers hold
+ * a job id only after the enqueue mutation resolves.
+ */
+export function useJob(jobId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.job(jobId ?? 'none'),
+    queryFn: () => apiClient<JobStatusResponse>(`/api/v1/jobs/${jobId}`),
+    enabled: jobId !== null,
+    refetchInterval: (query) => jobPollInterval(query.state.data),
+    // A terminal job never un-completes; interval refetches ignore
+    // staleTime anyway, and disabling focus-refetch avoids a redundant
+    // request burst when the operator tabs back to watch progress.
+    refetchOnWindowFocus: false,
   });
 }

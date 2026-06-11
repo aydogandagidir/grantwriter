@@ -463,7 +463,11 @@
     "exportDocx": "DOCX olarak dışa aktar",
     "exportXlsx": "Lump Sum XLSX dışa aktar",
     "exporting": "Dışa aktarılıyor…",
-    "exportQueued": "Dışa aktarım sıraya alındı ({jobId}). İndirme URL'si için jobs API'sini kontrol et."
+    "exportQueued": "Dışa aktarım sıraya alındı ({jobId}). İndirme URL'si için jobs API'sini kontrol et.",
+    "exportPreparing": "Dosyan hazırlanıyor…",
+    "exportDownload": "Dosyayı indir",
+    "exportFailed": "Dışa aktarma başarısız: {error}",
+    "exportNoUrl": "Dışa aktarma bitti ama bu program için dosya üretilmedi."
   },
   "proposalEditor": {
     "placeholder": "Yazmaya başla ya da metin seçip bir AI komutu uygula…",
@@ -489,7 +493,10 @@
     "saga_failed": "Saga başarısız: {error}",
     "connecting": "Canlı güncellemelere bağlanılıyor…",
     "noEventsYet": "İlk olay bekleniyor…",
-    "closed": "Akış kapandı."
+    "closed": "Akış kapandı.",
+    "jobQueued": "Kuyrukta — worker bekleniyor…",
+    "jobRunning": "Üretim sürüyor (5-15 dakika sürebilir)…",
+    "jobFailed": "Üretim başarısız: {error}"
   },
   "validation": {
     "title": "Uygunluk & atıflar",

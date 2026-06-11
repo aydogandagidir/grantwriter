@@ -1,12 +1,21 @@
 import type { ProposalDetail } from '@bluedev/shared-types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import enMessages from '@/messages/en.json';
+import { apiClient } from '@/lib/api/client';
 
 import { ProposalDraftView } from './proposal-draft-view';
+
+// Export-download tests drive a mutation + job poll; everything else in
+// this file never touches the network, so a file-scoped mock is safe.
+vi.mock('@/lib/api/client', () => ({
+  apiClient: vi.fn(),
+}));
+
+const apiClientMock = vi.mocked(apiClient);
 
 // Use the real English message bundle (not a hand-maintained subset) so the
 // provider resolves every key the component tree touches — including the
@@ -50,6 +59,10 @@ function renderView(proposal: ProposalDetail) {
   );
 }
 
+beforeEach(() => {
+  apiClientMock.mockReset();
+});
+
 describe('<ProposalDraftView>', () => {
   it('shows the empty-state hint when no draft sections exist', () => {
     renderView(baseProposal);
@@ -89,5 +102,67 @@ describe('<ProposalDraftView>', () => {
     });
     expect(screen.getByText('Export DOCX')).toBeInTheDocument();
     expect(screen.queryByText('Export Lump Sum XLSX')).not.toBeInTheDocument();
+  });
+
+  it('polls the export job and renders the signed-URL download link', async () => {
+    apiClientMock.mockImplementation((path: string) => {
+      if (path.includes('/export')) {
+        return Promise.resolve({
+          job_id: 'job-42',
+          status: 'queued',
+          proposal_id: baseProposal.id,
+          format: 'docx',
+        });
+      }
+      if (path.includes('/jobs/job-42')) {
+        return Promise.resolve({
+          id: 'job-42',
+          status: 'completed',
+          result: { signed_url: 'https://files.example/agy100.docx' },
+          error: null,
+        });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+
+    renderView({ ...baseProposal, draft: { excellence_md: 'x' } });
+
+    fireEvent.click(screen.getByTestId('export-docx'));
+
+    const link = await waitFor(() => screen.getByTestId('export-download'));
+    expect(link).toHaveAttribute('href', 'https://files.example/agy100.docx');
+    expect(link).toHaveTextContent('Download file');
+  });
+
+  it('surfaces a failed export with its error message', async () => {
+    apiClientMock.mockImplementation((path: string) => {
+      if (path.includes('/export')) {
+        return Promise.resolve({
+          job_id: 'job-43',
+          status: 'queued',
+          proposal_id: baseProposal.id,
+          format: 'docx',
+        });
+      }
+      if (path.includes('/jobs/job-43')) {
+        return Promise.resolve({
+          id: 'job-43',
+          status: 'failed',
+          result: null,
+          error: 'Bucket not found',
+        });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+
+    renderView({ ...baseProposal, draft: { excellence_md: 'x' } });
+
+    fireEvent.click(screen.getByTestId('export-docx'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('export-status')).toHaveTextContent(
+        'Export failed: Bucket not found',
+      ),
+    );
   });
 });
