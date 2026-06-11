@@ -252,3 +252,100 @@ async def test_health_remains_200_even_when_db_pool_none(
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+# ── /health/worker — Celery fleet probe ─────────────────────────────────
+#
+# Every test patches ``src.tasks.celery_app.ping_workers`` (the endpoint
+# does a local import, mirroring the /health/db ↔ try_init_pool pattern).
+# None of them touch a real broker: in CI's redis-on job a live ping
+# would block ~1s per test and return [] anyway (no worker is running),
+# i.e. flaky-slow for zero coverage.
+
+
+async def test_health_worker_returns_503_when_broker_unconfigured(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ping_workers → None means the broker is the memory:// test stub —
+    there is nothing to probe, and that is an operator-visible state."""
+
+    monkeypatch.setattr("src.tasks.celery_app.ping_workers", lambda timeout: None)
+
+    response = await client.get("/health/worker")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["worker"]["available"] is False
+    assert body["worker"]["reason"] == "broker_not_configured"
+
+
+async def test_health_worker_returns_503_when_no_workers_respond(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Broker reachable but zero pongs ⇒ fleet dead/booting. This is the
+    'generate will hang forever' state the probe exists to expose."""
+
+    monkeypatch.setattr("src.tasks.celery_app.ping_workers", lambda timeout: [])
+
+    response = await client.get("/health/worker")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["worker"]["available"] is False
+    assert body["worker"]["reason"] == "no_workers_responded"
+
+
+async def test_health_worker_returns_200_when_worker_replies(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "src.tasks.celery_app.ping_workers",
+        lambda timeout: ["celery@grantwriter-worker"],
+    )
+
+    response = await client.get("/health/worker")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "worker": {
+            "available": True,
+            "workers": ["celery@grantwriter-worker"],
+            "count": 1,
+        },
+    }
+
+
+async def test_health_worker_returns_503_on_broker_error(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Transport failure (KV dead → connection refused) must surface the
+    exception type so on-call can tell 'KV down' from 'no worker'."""
+
+    def _boom(timeout: float) -> list[str] | None:
+        raise ConnectionError("kv down")
+
+    monkeypatch.setattr("src.tasks.celery_app.ping_workers", _boom)
+
+    response = await client.get("/health/worker")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["worker"]["available"] is False
+    assert "ConnectionError" in body["worker"]["error"]
+    assert "kv down" in body["worker"]["error"]
+
+
+async def test_health_remains_200_when_worker_unavailable(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Decoupling contract: a dead worker fleet must never take down the
+    process-liveness probe — same rule as /health vs /health/db."""
+
+    monkeypatch.setattr("src.tasks.celery_app.ping_workers", lambda timeout: [])
+
+    response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"

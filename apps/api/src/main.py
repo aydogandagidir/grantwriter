@@ -239,6 +239,71 @@ def create_app() -> FastAPI:
             content={"status": "ok", "db": {"available": True}},
         )
 
+    # Deliberately a sync `def` (every other route is async): the broker
+    # broadcast in ping_workers() BLOCKS up to its timeout. Starlette runs
+    # sync routes on the threadpool, so the event loop never stalls while
+    # we wait for worker pongs.
+    @app.get("/health/worker", tags=["meta"])
+    def health_worker() -> JSONResponse:
+        """Worker-fleet health probe — distinguishes "API up" from "the
+        Celery fleet that runs generate/export is actually consuming".
+
+        Reads the broker through ``ping_workers``:
+        - broker unconfigured (memory:// stub) → 503 ``broker_not_configured``
+        - broker up, no pong within timeout    → 503 ``no_workers_responded``
+        - transport failure (KV down/refused)  → 503 with the typed error
+        - ≥1 pong → 200 with the sorted hostname list
+
+        ``/health`` never 503s for worker reasons — same decoupling
+        contract as ``/health/db``.
+        """
+
+        # Local import — mirrors the /health/db ↔ try_init_pool pattern so
+        # tests monkeypatch ``src.tasks.celery_app.ping_workers`` at the
+        # source module instead of fighting an early-bound reference here.
+        from src.tasks.celery_app import ping_workers
+
+        try:
+            workers = ping_workers(timeout=1.0)
+        # Catch-all: kombu raises transport-specific errors (ConnectionError,
+        # OSError subclasses, redis exceptions) when the broker is dead.
+        # All of them mean the same thing to a monitor: fleet unreachable.
+        except Exception as exc:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "degraded",
+                    "worker": {
+                        "available": False,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                },
+            )
+
+        if workers is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "degraded",
+                    "worker": {"available": False, "reason": "broker_not_configured"},
+                },
+            )
+        if not workers:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "degraded",
+                    "worker": {"available": False, "reason": "no_workers_responded"},
+                },
+            )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "ok",
+                "worker": {"available": True, "workers": workers, "count": len(workers)},
+            },
+        )
+
     @app.get("/health/sentry-test", tags=["meta"])
     async def health_sentry_test(settings: SettingsDep) -> dict[str, Any]:
         """Deliberate-exception probe for the Sentry pipeline (TICKET-003).

@@ -58,7 +58,39 @@ celery_app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,
     task_default_queue="default",
+    # Without this, states jump PENDING→SUCCESS and /jobs/{id} reports
+    # "queued" for the entire 5-15 min saga — operators can't tell a
+    # running generation from a dead worker. STARTED maps to "running".
+    task_track_started=True,
+    # Celery ≥5.3 deprecation default-flip guard: keep retrying the broker
+    # at worker boot instead of dying if Key Value is briefly unavailable
+    # (e.g., both services restart after a region incident).
+    broker_connection_retry_on_startup=True,
 )
+
+
+def ping_workers(timeout: float = 1.0) -> list[str] | None:
+    """Broadcast a ping to the worker fleet; return sorted hostnames.
+
+    Return contract (consumed by ``/health/worker`` in ``src.main``):
+
+    * ``None``  — broker unconfigured (in-memory test stub). A broadcast
+      on the memory transport has no consumers and would just block for
+      the full ``timeout``, so we short-circuit BEFORE inspect.
+    * ``[]``    — broker reachable but no worker replied within
+      ``timeout`` (fleet dead or still booting). NB: with a live broker
+      and zero workers, ``ping()`` blocks the full timeout then returns
+      ``None`` — it does not raise; only transport failures raise.
+    * ``[...]`` — pong'ing worker hostnames, sorted for stable output.
+
+    Each call opens a fresh broker connection — fine at probe frequency
+    (uptime monitor / readiness script), too heavy for any hot path.
+    """
+
+    if str(celery_app.conf.broker_url or "").startswith("memory://"):
+        return None
+    replies = celery_app.control.inspect(timeout=timeout).ping()
+    return sorted(replies or {})
 
 
 # ── Beat schedule ────────────────────────────────────────────────────────
@@ -92,4 +124,4 @@ celery_app.conf.beat_schedule = {
 }
 
 
-__all__ = ["celery_app"]
+__all__ = ["celery_app", "ping_workers"]
