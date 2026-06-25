@@ -1,12 +1,13 @@
 import { setRequestLocale } from 'next-intl/server';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { OnboardingWizard } from '@/app/[locale]/onboarding/onboarding-wizard';
 
 /**
- * Stub onboarding page reached when the Supabase user exists but has
- * no public.users row yet (post-signup). The real onboarding flow
- * (pick a tenant name, set up billing) is out of Sprint 3 scope; this
- * page just explains the situation.
+ * Post-signup workspace bootstrap. The Supabase user exists but has
+ * no ``public.users`` row yet — :file:`onboarding-wizard.tsx` collects
+ * the workspace name + plan and calls
+ * ``POST /api/v1/onboarding/workspace`` to create the tenant + link
+ * the caller as its first owner.
  */
 export default async function OnboardingPage({
   params,
@@ -15,20 +16,5 @@ export default async function OnboardingPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-12">
-      <Card className="w-full max-w-lg">
-        <CardHeader>
-          <CardTitle>Set up your workspace</CardTitle>
-          <CardDescription>
-            Your account is created but you&apos;re not in a tenant yet. The
-            onboarding flow (workspace name + billing) is coming in Sprint 4.
-            If you were invited, open the invitation link in your inbox.
-          </CardDescription>
-        </CardHeader>
-        <CardContent />
-      </Card>
-    </div>
-  );
+  return <OnboardingWizard />;
 }

@@ -45,6 +45,7 @@ from src.core.config import SettingsDep
 from src.core.db import get_db
 from src.core.llm_dep import get_llm_router
 from src.core.rate_limit import LLM_CALL, RateLimitDecision, rate_limit
+from src.core.tenant import resolve_tenant_and_role
 from src.llm.router import LLMRouter
 from src.orchestrator.sse_publisher import channel_for
 from src.programs import get_module
@@ -712,9 +713,94 @@ def _loads(value: Any) -> dict[str, Any]:
     return {}
 
 
+class ProposalDraft(BaseModel):
+    """The three writer sections persisted on ``proposals.draft``.
+
+    Empty string when the saga hasn't run for that section yet —
+    saves the FE from null-checks. The fields match the keys the
+    saga's writers emit (see ``orchestrator/draft_generator.py``).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    excellence_md: str = ""
+    impact_md: str = ""
+    implementation_md: str = ""
+
+
+class ProposalRead(BaseModel):
+    """``GET /proposals/{id}`` response.
+
+    Minimal slice: editor-shell needs id + title + status to render
+    the page header, and ``draft`` so the editor can pre-fill with
+    the saga's markdown (provenance marks land via the items endpoint
+    in :file:`provenance.py`).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    title: str | None
+    status: str
+    language: str
+    programme_id: str
+    draft: ProposalDraft
+
+
+@router.get(
+    "/{proposal_id}",
+    response_model=ProposalRead,
+    summary="Read a single proposal (header + per-section draft markdown)",
+)
+async def get_proposal(
+    proposal_id: UUID,
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+) -> ProposalRead:
+    """Return the editor-shell's payload.
+
+    Status codes:
+    - 200: row in caller's tenant.
+    - 404: missing OR cross-tenant (no distinction — same as the
+      provenance routes, prevents enumeration).
+    """
+
+    tenant_id, _role = await resolve_tenant_and_role(conn, user_id=user_id)
+    row = await conn.fetchrow(
+        """
+        select id, title, status, language, programme_id, draft
+          from proposals
+         where id = $1 and tenant_id = $2
+        """,
+        proposal_id,
+        tenant_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="proposal not found",
+        )
+
+    draft = _loads(row["draft"])
+    return ProposalRead(
+        id=UUID(str(row["id"])),
+        title=(str(row["title"]) if row["title"] else None),
+        status=str(row["status"]),
+        language=str(row["language"]),
+        programme_id=str(row["programme_id"]),
+        draft=ProposalDraft(
+            excellence_md=str(draft.get("excellence_md") or ""),
+            impact_md=str(draft.get("impact_md") or ""),
+            implementation_md=str(draft.get("implementation_md") or ""),
+        ),
+    )
+
+
 __all__ = [
     "AIDisclosureResponse",
     "ExportEnqueued",
     "GenerateEnqueued",
+    "ProposalDraft",
+    "ProposalRead",
     "router",
 ]

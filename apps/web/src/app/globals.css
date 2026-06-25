@@ -61,3 +61,45 @@
       'calt' 1;
   }
 }
+
+/*
+ * Provenance highlighting in the proposal editor.
+ *
+ * Each sentence the editor wraps in a ``.provenance`` span gets a
+ * source-specific subtle underline. The colour vocabulary keeps the
+ * editor readable as prose (no heavy backgrounds), while still
+ * signalling "this came from an AI / a paste / a RAG hit" at a
+ * glance. Hover lifts the background for the operator to scan.
+ *
+ * The default ``human`` source intentionally has NO decoration — the
+ * vast majority of the document is human-authored once the saga
+ * sentences get edited, and underlining everything defeats the point.
+ */
+.provenance {
+  border-radius: 2px;
+  padding: 0 1px;
+  transition: background-color 120ms ease-in-out;
+}
+.provenance:hover {
+  background-color: hsl(var(--muted) / 0.6);
+  cursor: help;
+}
+
+.provenance--ai-generated {
+  text-decoration: underline wavy hsl(217 91% 60% / 0.6);
+  text-underline-offset: 3px;
+}
+.provenance--ai-edited {
+  text-decoration: underline dotted hsl(38 92% 50% / 0.7);
+  text-underline-offset: 3px;
+}
+.provenance--imported {
+  text-decoration: underline dashed hsl(160 84% 39% / 0.5);
+  text-underline-offset: 3px;
+}
+.provenance--rag-retrieved {
+  text-decoration: underline solid hsl(280 65% 60% / 0.5);
+  text-underline-offset: 3px;
+}
+/* ``provenance--human`` deliberately renders without decoration. */
+

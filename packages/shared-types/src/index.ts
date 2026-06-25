@@ -8,6 +8,94 @@
 export type UserRole = 'owner' | 'admin' | 'member' | 'viewer';
 export type PlanName = 'starter' | 'pro' | 'enterprise';
 
+// ── Provenance ──────────────────────────────────────────────────────────
+
+export type ProvenanceSource =
+  | 'human'
+  | 'ai-generated'
+  | 'ai-edited'
+  | 'imported'
+  | 'rag-retrieved';
+
+export interface ProvenanceSentence {
+  sentence_id: string;
+  section: string;
+  content: string;
+  source: ProvenanceSource;
+  agent_id?: string | null;
+  llm_model?: string | null;
+  llm_tokens?: number | null;
+  source_citations?: string[] | null;
+}
+
+export interface ProvenanceBatchRequest {
+  sentences: ProvenanceSentence[];
+}
+
+export interface ProvenanceBatchResponse {
+  upserted: number;
+}
+
+export interface ProvenanceSourceCount {
+  source: string;
+  count: number;
+}
+
+export interface ProvenanceStatsResponse {
+  total: number;
+  per_source: ProvenanceSourceCount[];
+  per_agent: ProvenanceSourceCount[];
+  per_model: ProvenanceSourceCount[];
+}
+
+export interface ProvenanceItem {
+  sentence_id: string;
+  section: string;
+  content: string;
+  source: string;
+  agent_id: string | null;
+  llm_model: string | null;
+  llm_tokens: number | null;
+  created_at: string;
+}
+
+export interface ProvenanceListResponse {
+  items: ProvenanceItem[];
+  next_offset: number | null;
+}
+
+// ── Proposals ───────────────────────────────────────────────────────────
+
+export interface ProposalDraft {
+  excellence_md: string;
+  impact_md: string;
+  implementation_md: string;
+}
+
+export interface ProposalRead {
+  id: string;
+  title: string | null;
+  status: string;
+  language: string;
+  programme_id: string;
+  draft: ProposalDraft;
+}
+
+// ── Onboarding ──────────────────────────────────────────────────────────
+
+export interface WorkspaceCreateRequest {
+  name: string;
+  slug?: string;
+  preferred_language: 'tr' | 'en';
+}
+
+export interface WorkspaceCreatedResponse {
+  tenant_id: string;
+  slug: string;
+  role: 'owner';
+  plan: PlanName;
+}
+
 // ── /me ──────────────────────────────────────────────────────────────────
 
 export interface MeResponse {

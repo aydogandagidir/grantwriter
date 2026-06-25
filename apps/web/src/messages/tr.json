@@ -231,5 +231,61 @@
     "notFound": "Aradığın kayıt bulunamadı.",
     "rateLimit": "Çok fazla istek. Lütfen biraz bekle.",
     "quotaExceeded": "Plan limitin doldu. Fatura sayfasından yükselt."
+  },
+  "sections": {
+    "aria": "Öneri bölümleri",
+    "excellence": "Mükemmellik",
+    "impact": "Etki",
+    "implementation": "Uygulama"
+  },
+  "provenance": {
+    "tabTitle": "Köken",
+    "title": "AI / insan yazarlığı",
+    "loading": "Köken verisi yükleniyor…",
+    "loadError": "Köken istatistikleri yüklenemedi.",
+    "emptyDescription": "AI ajanları ya da siz içerik ekledikçe köken kayıtları görünmeye başlar.",
+    "totalSentences": "{count} cümle izleniyor",
+    "breakdownAria": "Kaynak dağılımı",
+    "disclosureHeading": "AI Kullanım Beyanı önizleme (HE Sayfa 32)",
+    "copy": "Beyanı kopyala",
+    "copied": "Kopyalandı"
+  },
+  "editor": {
+    "placeholder": "Yazmaya başla — her cümle kaynak izi ile takip edilir.",
+    "regionLabel": "Başvuru editörü",
+    "bold": "Kalın",
+    "italic": "İtalik",
+    "h1": "Başlık 1",
+    "h2": "Başlık 2",
+    "bullet": "Madde işaretli liste",
+    "ordered": "Numaralı liste",
+    "saving": "Kaydediliyor…",
+    "saved": "Kaydedildi",
+    "saveFailed": "Kaynak izi kaydedilemedi"
+  },
+  "onboarding": {
+    "title": "Workspace'ini kur",
+    "subtitle": "İki kısa adım. Her tercihi sonra Ayarlar'dan değiştirebilirsin.",
+    "stepIndicator": "Adım {current} / {total}",
+    "step1Title": "Workspace'ine bir isim ver",
+    "step1Description": "Ekibin bu hesabı bu adla görecek. Slug URL'nde geçer.",
+    "nameLabel": "Workspace adı",
+    "namePlaceholder": "Acme Labs",
+    "slugLabel": "URL slug (opsiyonel)",
+    "slugHint": "Boş bırakırsan isimden türetiriz.",
+    "languageLabel": "Varsayılan dil",
+    "step2Title": "Başlangıç planını seç",
+    "step2Description": "Starter ücretsiz — ayda 3 başvuru. İstediğin zaman Fatura'dan yükseltebilirsin.",
+    "starterTitle": "Starter",
+    "starterPrice": "Ücretsiz",
+    "starterFeatures": "Ayda 3 başvuru · BYOK destekli · Topluluk desteği",
+    "starterRecommended": "Bluedev'i denemek için doğru seçim Starter.",
+    "buttonNext": "Devam",
+    "buttonBack": "Geri",
+    "buttonCreate": "Workspace oluştur",
+    "buttonCreating": "Oluşturuluyor…",
+    "successToast": "Workspace hazır — hadi başlayalım!",
+    "errorSlugTaken": "Bu URL slug zaten alınmış. Başka bir tane dene.",
+    "errorInvalidSlug": "Slug yalnız küçük harf, rakam ve tek tire içerebilir (3-40 karakter)."
   }
 }

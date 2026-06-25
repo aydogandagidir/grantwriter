@@ -16,6 +16,7 @@ module owns the rendering surface; tests stub :func:`_send_via_resend`
 rather than the templates.
 """
 
+from src.notifications import resend_webhook
 from src.notifications.email import (
     send_draft_complete_email,
     send_invitation_email,
@@ -33,6 +34,7 @@ __all__ = [
     "render_draft_complete_email",
     "render_invitation_email",
     "render_member_added_email",
+    "resend_webhook",
     "send_draft_complete_email",
     "send_invitation_email",
     "send_member_added_email",

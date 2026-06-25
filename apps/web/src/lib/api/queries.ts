@@ -24,6 +24,13 @@ import type {
   UsageReport,
   ValidationReport,
   VersionListResponse,
+  WorkspaceCreatedResponse,
+  WorkspaceCreateRequest,
+  ProposalRead,
+  ProvenanceBatchRequest,
+  ProvenanceBatchResponse,
+  ProvenanceListResponse,
+  ProvenanceStatsResponse,
 } from '@bluedev/shared-types';
 
 import { apiClient } from '@/lib/api/client';
@@ -53,6 +60,94 @@ export function useMe() {
     queryKey: queryKeys.me,
     queryFn: () => apiClient<MeResponse>('/api/v1/me'),
     staleTime: 60_000,
+  });
+}
+
+// ── Proposal ────────────────────────────────────────────────────────────
+
+/**
+ * Fetch a single proposal's header + draft markdown. The editor-shell
+ * consumes this so :func:`ProposalEditor` gets the section markdown to
+ * pre-fill via the provenance attacher.
+ */
+export function useProposal(proposalId: string) {
+  return useQuery({
+    queryKey: ['proposal', proposalId] as const,
+    queryFn: () => apiClient<ProposalRead>(`/api/v1/proposals/${proposalId}`),
+    enabled: Boolean(proposalId),
+  });
+}
+
+// ── Onboarding ──────────────────────────────────────────────────────────
+
+export function useCreateWorkspace() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: WorkspaceCreateRequest) =>
+      apiClient<WorkspaceCreatedResponse>('/api/v1/onboarding/workspace', {
+        method: 'POST',
+        body,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.me }),
+  });
+}
+
+// ── Provenance ──────────────────────────────────────────────────────────
+
+export function useUpsertProvenance(proposalId: string) {
+  return useMutation({
+    mutationFn: (body: ProvenanceBatchRequest) =>
+      apiClient<ProvenanceBatchResponse>(
+        `/api/v1/proposals/${proposalId}/provenance`,
+        { method: 'POST', body },
+      ),
+  });
+}
+
+export function useProvenanceStats(proposalId: string) {
+  return useQuery({
+    queryKey: ['provenance', 'stats', proposalId] as const,
+    queryFn: () =>
+      apiClient<ProvenanceStatsResponse>(
+        `/api/v1/proposals/${proposalId}/provenance/stats`,
+      ),
+    enabled: Boolean(proposalId),
+  });
+}
+
+/**
+ * Fetch the saga-written sentence rows for a proposal so the editor
+ * can re-attach provenance marks atop the persisted draft markdown
+ * when the user opens the page.
+ *
+ * Pagination is server-driven via ``next_offset``; callers that need
+ * the full list can fold over the response in a follow-up.
+ */
+export function useProvenanceItems(
+  proposalId: string,
+  options?: { section?: string; limit?: number },
+) {
+  const section = options?.section;
+  const limit = options?.limit;
+  return useQuery({
+    queryKey: [
+      'provenance',
+      'items',
+      proposalId,
+      section ?? null,
+      limit ?? null,
+    ] as const,
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (section) params.set('section', section);
+      if (limit !== undefined) params.set('limit', String(limit));
+      const qs = params.toString();
+      const suffix = qs.length > 0 ? `?${qs}` : '';
+      return apiClient<ProvenanceListResponse>(
+        `/api/v1/proposals/${proposalId}/provenance${suffix}`,
+      );
+    },
+    enabled: Boolean(proposalId),
   });
 }
 

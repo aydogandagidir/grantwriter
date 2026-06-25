@@ -45,6 +45,7 @@ from src.agents.distinctiveness_scorer import DistinctivenessScorerAgent
 from src.core.audit import write_audit_event
 from src.core.config import get_settings
 from src.notifications import send_draft_complete_email
+from src.orchestrator import provenance_recorder
 from src.orchestrator.sse_publisher import SSEPublisher
 
 if TYPE_CHECKING:
@@ -226,6 +227,10 @@ class DraftGenerator:
 
             # Persist + final status
             await self._persist_outputs(agent_outputs)
+            # Sentence-level provenance for the FE panel + HE AI
+            # disclosure auto-fill. Best-effort: a missing-column /
+            # mocked-fixture failure must not flip the saga to failed.
+            await self._record_section_provenance(agent_outputs)
             final_status: DraftStatus = (
                 "draft_complete_with_issues"
                 if _hunt_is_blocking(hunt_output)
@@ -239,6 +244,11 @@ class DraftGenerator:
             # Best-effort completion email — outside the saga's blocking
             # path so a Resend outage never flips a green run to red.
             await self._send_completion_email(final_status)
+            # Best-effort auto-snapshot — gives the user an editable
+            # baseline before any manual edits. A DB hiccup here must
+            # not flip the saga status; the user can still snapshot
+            # manually via POST /api/v1/proposals/{id}/versions.
+            await self._take_auto_snapshot()
             return self._build_result(final_status, started, agent_outputs)
 
         except UnrecoverableError as exc:
@@ -470,6 +480,7 @@ class DraftGenerator:
             status=final_status,
             has_blockers=final_status == "draft_complete_with_issues",
             lang=str(language) if language else None,
+            conn=self._conn,
         )
 
         if result.status == "failed":
@@ -488,6 +499,122 @@ class DraftGenerator:
                     "email_send_failed_audit_write_failed",
                     extra={"proposal_id": str(self.proposal_id)},
                 )
+
+    async def _record_section_provenance(
+        self, agent_outputs: dict[str, AgentOutput]
+    ) -> None:
+        """Best-effort sentence-level provenance write for AI sections.
+
+        Delegates to :mod:`provenance_recorder` which swallows + logs
+        its own failures. A wrapping try/except here is belt-and-braces
+        in case the import / module setup ever throws.
+        """
+
+        try:
+            await provenance_recorder.record(
+                self._conn,
+                proposal_id=self.proposal_id,
+                agent_outputs=agent_outputs,
+            )
+        except Exception:
+            logger.exception(
+                "saga_provenance_unexpected_failure",
+                extra={"proposal_id": str(self.proposal_id)},
+            )
+
+    async def _take_auto_snapshot(self) -> None:
+        """Best-effort baseline snapshot of the just-persisted draft.
+
+        Wraps :meth:`_take_auto_snapshot_unsafe` so a missing-column /
+        FK / transient error never bubbles up — the saga has already
+        committed the user-visible draft and the FE has a manual
+        snapshot button as a fallback.
+        """
+
+        try:
+            await self._take_auto_snapshot_unsafe()
+        except Exception:
+            logger.exception(
+                "auto_snapshot_unexpected_failure",
+                extra={"proposal_id": str(self.proposal_id)},
+            )
+
+    async def _take_auto_snapshot_unsafe(self) -> None:
+        """Insert one ``proposal_versions`` row + audit event.
+
+        The snapshot is composed inside Postgres (``select p.draft``)
+        so the jsonb body never crosses the Python boundary — same
+        pattern as the manual ``POST /api/v1/proposals/{id}/versions``
+        route in ``src/api/routes/versions.py``.
+        """
+
+        new_row = await self._conn.fetchrow(
+            """
+            insert into proposal_versions (
+              proposal_id, version_number, draft_snapshot, created_by, comment
+            )
+            select
+              $1,
+              coalesce(
+                (select max(version_number) + 1
+                   from proposal_versions where proposal_id = $1),
+                1
+              ),
+              p.draft,
+              p.created_by,
+              $2
+              from proposals p where p.id = $1
+            returning id, version_number, created_by
+            """,
+            self.proposal_id,
+            "auto-snapshot after generation",
+        )
+        if new_row is None:
+            # Proposal was deleted mid-saga (KVKK / GDPR) — nothing to snapshot.
+            return
+
+        new_id = _row_get(new_row, "id")
+        new_version_number = _row_get(new_row, "version_number")
+        if new_id is None or new_version_number is None:
+            # Mock / partial-row fixture path — log + bail so the audit
+            # write doesn't fabricate ids. Production rows always have both.
+            logger.info(
+                "auto_snapshot_skipped_partial_row",
+                extra={"proposal_id": str(self.proposal_id)},
+            )
+            return
+
+        tenant_row = await self._conn.fetchrow(
+            "select tenant_id from proposals where id = $1", self.proposal_id
+        )
+        tenant_id = _row_get(tenant_row, "tenant_id") if tenant_row else None
+
+        try:
+            await write_audit_event(
+                self._conn,
+                tenant_id=tenant_id,
+                user_id=_row_get(new_row, "created_by"),
+                action="proposal.version_created",
+                resource_type="proposal_version",
+                resource_id=UUID(str(new_id)),
+                diff={
+                    "version_number": str(new_version_number),
+                    "source": "auto_snapshot",
+                },
+            )
+        except Exception:
+            logger.exception(
+                "auto_snapshot_audit_write_failed",
+                extra={"proposal_id": str(self.proposal_id)},
+            )
+
+        logger.info(
+            "auto_snapshot_created",
+            extra={
+                "proposal_id": str(self.proposal_id),
+                "version_number": int(new_version_number),
+            },
+        )
 
     # ── Helpers ───────────────────────────────────────────────────────
 

@@ -35,7 +35,10 @@ from src.api.routes.jobs import router as jobs_router
 from src.api.routes.llm_config import router as llm_config_router
 from src.api.routes.me import router as me_router
 from src.api.routes.members import router as members_router
+from src.api.routes.notifications import router as notifications_router
+from src.api.routes.onboarding import router as onboarding_router
 from src.api.routes.proposals import router as proposals_router
+from src.api.routes.provenance import router as provenance_router
 from src.api.routes.usage import router as usage_router
 from src.api.routes.versions import router as versions_router
 from src.core.config import SettingsDep, get_settings
@@ -181,6 +184,9 @@ def create_app() -> FastAPI:
     app.include_router(versions_router)
     app.include_router(comments_proposal_router)
     app.include_router(comments_id_router)
+    app.include_router(onboarding_router)
+    app.include_router(provenance_router)
+    app.include_router(notifications_router)
 
     return app
 

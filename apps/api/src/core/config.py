@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     email_from: str = "Bluedev GrantWriter <noreply@bluedev.dev>"
     app_url: str = "https://app.bluedev.dev"  # used to compose invite accept URLs
     email_enabled: bool = True  # kill-switch independent of API key presence
+    # Resend uses Svix-style webhook signatures; set this to the secret
+    # the operator copied from the Resend dashboard. Required to verify
+    # POST /api/v1/notifications/resend-webhook payloads.
+    resend_webhook_secret: SecretStr | None = None
 
 
 @lru_cache(maxsize=1)

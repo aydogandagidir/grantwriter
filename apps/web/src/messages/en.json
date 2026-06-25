@@ -231,5 +231,61 @@
     "notFound": "Record not found.",
     "rateLimit": "Too many requests. Slow down.",
     "quotaExceeded": "Plan limit reached. Upgrade in Billing."
+  },
+  "sections": {
+    "aria": "Proposal sections",
+    "excellence": "Excellence",
+    "impact": "Impact",
+    "implementation": "Implementation"
+  },
+  "provenance": {
+    "tabTitle": "Provenance",
+    "title": "AI / human authorship",
+    "loading": "Loading provenance…",
+    "loadError": "Could not load provenance stats.",
+    "emptyDescription": "Provenance starts populating as soon as the AI agents or you write content.",
+    "totalSentences": "{count} sentences tracked",
+    "breakdownAria": "Source breakdown",
+    "disclosureHeading": "AI Use disclosure preview (HE Page 32)",
+    "copy": "Copy disclosure",
+    "copied": "Copied"
+  },
+  "editor": {
+    "placeholder": "Start writing — every sentence is tracked with provenance.",
+    "regionLabel": "Proposal editor",
+    "bold": "Bold",
+    "italic": "Italic",
+    "h1": "Heading 1",
+    "h2": "Heading 2",
+    "bullet": "Bulleted list",
+    "ordered": "Numbered list",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "saveFailed": "Couldn't save provenance"
+  },
+  "onboarding": {
+    "title": "Set up your workspace",
+    "subtitle": "Two quick steps. You can change every choice later in Settings.",
+    "stepIndicator": "Step {current} of {total}",
+    "step1Title": "Name your workspace",
+    "step1Description": "This is how your team will see this account. The slug becomes part of your URL.",
+    "nameLabel": "Workspace name",
+    "namePlaceholder": "Acme Labs",
+    "slugLabel": "URL slug (optional)",
+    "slugHint": "We'll derive one from the name if you skip this.",
+    "languageLabel": "Default language",
+    "step2Title": "Choose your starting plan",
+    "step2Description": "Starter is free with 3 proposals per month. Upgrade any time from Billing.",
+    "starterTitle": "Starter",
+    "starterPrice": "Free",
+    "starterFeatures": "3 proposals / month · BYOK supported · Community support",
+    "starterRecommended": "Starter is the right choice for evaluating Bluedev.",
+    "buttonNext": "Continue",
+    "buttonBack": "Back",
+    "buttonCreate": "Create workspace",
+    "buttonCreating": "Creating…",
+    "successToast": "Workspace ready — let's go!",
+    "errorSlugTaken": "That URL slug is already taken. Try another one.",
+    "errorInvalidSlug": "Slug must be lowercase letters, digits, and single hyphens (3-40 chars)."
   }
 }
