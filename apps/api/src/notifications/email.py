@@ -25,8 +25,11 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
+import asyncpg
+
 from src.core.config import Settings, get_settings
 from src.core.observability import _scrub_string
+from src.notifications.suppression import is_recipient_suppressed
 from src.notifications.templates import (
     EmailPayload,
     render_draft_complete_email,
@@ -78,7 +81,10 @@ def _scrub_payload(payload: EmailPayload) -> EmailPayload:
 
 
 async def _send_via_resend(
-    payload: EmailPayload, *, settings: Settings | None = None
+    payload: EmailPayload,
+    *,
+    settings: Settings | None = None,
+    conn: asyncpg.Connection | None = None,
 ) -> SendResult:
     """The single Resend call surface.
 
@@ -89,6 +95,38 @@ async def _send_via_resend(
     """
 
     cfg = settings or get_settings()
+
+    # Suppression list — applied BEFORE the Resend round-trip so we
+    # neither hit the SDK nor waste a paid send on a known-bad address.
+    # ``conn`` is optional: callers without a DB connection get the
+    # old behaviour. Best-effort: any failure in the suppression query
+    # logs + lets the send proceed (a DB hiccup must not mute every
+    # email).
+    if conn is not None:
+        try:
+            suppressed = await is_recipient_suppressed(
+                conn, recipient=str(payload.to)
+            )
+        except Exception:
+            logger.exception(
+                "email_suppression_check_failed",
+                extra={"template": payload.template_name},
+            )
+            suppressed = False
+        if suppressed:
+            logger.info(
+                "email_skipped",
+                extra={
+                    "template": payload.template_name,
+                    "reason": "recipient_suppressed",
+                    "recipient_count": 1,
+                },
+            )
+            return SendResult(
+                status="skipped",
+                template_name=payload.template_name,
+                reason="recipient_suppressed",
+            )
 
     if not cfg.email_enabled:
         logger.info(
@@ -212,12 +250,14 @@ async def send_invitation_email(
     invitation_id: UUID,
     lang: str | None = None,
     settings: Settings | None = None,
+    conn: asyncpg.Connection | None = None,
 ) -> SendResult:
     """Render + send the invitation template.
 
     The accept URL composition is the caller's responsibility (the
     invitations route owns the routing convention); the template just
-    renders the link verbatim.
+    renders the link verbatim. Passing ``conn`` enables the bounce /
+    complaint suppression check before the Resend call.
     """
 
     payload = render_invitation_email(
@@ -230,7 +270,7 @@ async def send_invitation_email(
         invitation_id=invitation_id,
         lang=lang,
     )
-    return await _send_via_resend(payload, settings=settings)
+    return await _send_via_resend(payload, settings=settings, conn=conn)
 
 
 async def send_draft_complete_email(
@@ -243,6 +283,7 @@ async def send_draft_complete_email(
     has_blockers: bool,
     lang: str | None = None,
     settings: Settings | None = None,
+    conn: asyncpg.Connection | None = None,
 ) -> SendResult:
     """Saga-complete notification for the proposal owner."""
 
@@ -255,7 +296,7 @@ async def send_draft_complete_email(
         has_blockers=has_blockers,
         lang=lang,
     )
-    return await _send_via_resend(payload, settings=settings)
+    return await _send_via_resend(payload, settings=settings, conn=conn)
 
 
 async def send_member_added_email(
@@ -267,6 +308,7 @@ async def send_member_added_email(
     invitation_id: UUID,
     lang: str | None = None,
     settings: Settings | None = None,
+    conn: asyncpg.Connection | None = None,
 ) -> SendResult:
     """Owner-facing notification when an invitee accepts."""
 
@@ -278,7 +320,7 @@ async def send_member_added_email(
         invitation_id=invitation_id,
         lang=lang,
     )
-    return await _send_via_resend(payload, settings=settings)
+    return await _send_via_resend(payload, settings=settings, conn=conn)
 
 
 __all__ = [

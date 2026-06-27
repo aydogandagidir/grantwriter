@@ -50,6 +50,32 @@ async def pool(database_url: str) -> AsyncIterator[asyncpg.Pool]:
 
 
 @pytest.fixture
+async def _auth_helpers_present(pool: asyncpg.Pool) -> bool:
+    """True iff ``auth.tenant_id()`` + ``auth.is_tenant_admin()`` exist.
+
+    The local Supabase stack restricts ``postgres`` from creating
+    objects in the ``auth`` schema (only ``supabase_admin`` can), so
+    migration 009's helpers never land there. CI's bare pgvector
+    container has no such restriction and runs the helpers normally,
+    where these tests behave as designed.
+    """
+
+    async with pool.acquire() as conn:
+        present = await conn.fetchval(
+            """
+            select exists (
+              select 1 from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'auth'
+                 and p.proname in ('tenant_id', 'is_tenant_admin')
+              having count(*) = 2
+            )
+            """
+        )
+    return bool(present)
+
+
+@pytest.fixture
 async def fixture_data(pool: asyncpg.Pool) -> AsyncIterator[dict[str, uuid.UUID]]:
     """Insert two tenants + two users + two proposals; tear down after the test."""
 

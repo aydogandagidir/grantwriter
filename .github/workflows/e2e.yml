@@ -1,0 +1,113 @@
+name: e2e
+
+# Playwright smoke specs (apps/web/e2e/*.spec.ts) — runs on every PR
+# and every push to main that touches the FE. The specs skip cleanly
+# when ``E2E_BASE_URL`` / ``E2E_TEST_EMAIL`` / ``E2E_TEST_PASSWORD``
+# aren't configured (each spec opens with ``test.skip(!env, ...)``),
+# so the job is GREEN out of the box. Once the operator wires those
+# secrets in the repo settings the same job exercises the real signup
+# → onboarding / BYOK / invitation flows against staging.
+#
+# Why a separate workflow instead of folding it into api-ci.yml:
+#  - api-ci provisions Postgres + Redis services it never needs here.
+#  - The browser install + cache layer is heavy enough that we don't
+#    want it sitting in the critical path of the BE pytest job.
+#  - Path filters keep noise out — purely BE PRs don't pay the cost.
+#
+# Artifacts: on failure we upload ``apps/web/playwright-report`` and
+# ``apps/web/test-results`` so the operator can pull traces + the HTML
+# report from the run page without a re-run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/shared-types/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/e2e.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "packages/shared-types/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/e2e.yml"
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright:
+    name: Playwright (chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The specs read these from ``process.env`` and skip when blank.
+      # Wire them to repo / environment secrets once the operator has
+      # a staging-domain + e2e-only Supabase user provisioned.
+      E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
+      E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+      E2E_ANTHROPIC_TEST_KEY: ${{ secrets.E2E_ANTHROPIC_TEST_KEY }}
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` here — pnpm/action-setup reads it from the root
+      # package.json `packageManager` field (pnpm@9.15.0). Specifying
+      # both would error with ERR_PNPM_BAD_PM_VERSION.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: pnpm install
+        # Install at the repo root so the pnpm workspace resolves
+        # apps/web's link to @bluedev/shared-types correctly.
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      # Cache the browser binaries — Playwright pulls ~150MB of chromium
+      # + ffmpeg on first install; subsequent runs reuse this cache as
+      # long as the lockfile pins the same @playwright/test version.
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright chromium + system deps
+        run: pnpm exec playwright install --with-deps chromium
+
+      # The skip-on-missing-env pattern means this command stays green
+      # without any secrets. The reporter set (``list`` + ``html``)
+      # lives in ``playwright.config.ts`` so the artifact upload below
+      # finds the same paths whether we run locally or in CI.
+      - name: pnpm e2e
+        run: pnpm exec playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 14
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: apps/web/test-results
+          retention-days: 14

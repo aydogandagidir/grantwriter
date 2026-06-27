@@ -469,6 +469,18 @@
     "exportFailed": "Dışa aktarma başarısız: {error}",
     "exportNoUrl": "Dışa aktarma bitti ama bu program için dosya üretilmedi."
   },
+  "provenance": {
+    "tabTitle": "Köken",
+    "title": "AI / insan yazarlığı",
+    "loading": "Köken verisi yükleniyor…",
+    "loadError": "Köken istatistikleri yüklenemedi.",
+    "emptyDescription": "AI ajanları ya da siz içerik ekledikçe köken kayıtları görünmeye başlar.",
+    "totalSentences": "{count} cümle izleniyor",
+    "breakdownAria": "Kaynak dağılımı",
+    "disclosureHeading": "AI Kullanım Beyanı önizleme (HE Sayfa 32)",
+    "copy": "Beyanı kopyala",
+    "copied": "Kopyalandı"
+  },
   "proposalEditor": {
     "placeholder": "Yazmaya başla ya da metin seçip bir AI komutu uygula…",
     "sectionLabel": "{section} bölümü",

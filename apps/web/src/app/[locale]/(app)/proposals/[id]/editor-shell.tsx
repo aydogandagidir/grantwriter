@@ -9,6 +9,7 @@ import type { ProposalStatus } from '@bluedev/shared-types';
 import { CommentsPanel } from '@/components/proposal/comments-panel';
 import { GenerateProgress } from '@/components/proposal/generate-progress';
 import { ProposalDraftView } from '@/components/proposal/proposal-draft-view';
+import { ProvenancePanel } from '@/components/proposal/provenance-panel';
 import { ValidationPanel } from '@/components/proposal/validation-panel';
 import { VersionsPanel } from '@/components/proposal/versions-panel';
 import { Badge } from '@/components/ui/badge';
@@ -48,6 +49,7 @@ export function ProposalEditorShell({
   const tValidation = useTranslations('validation');
   const tVersions = useTranslations('versions');
   const tComments = useTranslations('comments');
+  const tProvenance = useTranslations('provenance');
   const tStatus = useTranslations('proposals.status');
   const format = useFormatter();
   const { data: proposal, isLoading, refetch } = useProposal(proposalId);
@@ -125,6 +127,10 @@ export function ProposalEditorShell({
               <ShieldCheck className="h-4 w-4" />
               {tValidation('title')}
             </TabsTrigger>
+            <TabsTrigger value="provenance" className="flex-1 gap-2">
+              <FileText className="h-4 w-4" />
+              {tProvenance('tabTitle')}
+            </TabsTrigger>
             <TabsTrigger value="versions" className="flex-1 gap-2">
               <History className="h-4 w-4" />
               {tVersions('title')}
@@ -145,6 +151,9 @@ export function ProposalEditorShell({
           </TabsContent>
           <TabsContent value="validation">
             <ValidationPanel proposalId={proposalId} />
+          </TabsContent>
+          <TabsContent value="provenance">
+            <ProvenancePanel proposalId={proposalId} />
           </TabsContent>
           <TabsContent value="versions">
             <VersionsPanel proposalId={proposalId} />

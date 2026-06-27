@@ -41,6 +41,10 @@ import type {
   UsageReport,
   ValidationReport,
   VersionListResponse,
+  ProvenanceBatchRequest,
+  ProvenanceBatchResponse,
+  ProvenanceListResponse,
+  ProvenanceStatsResponse,
 } from '@bluedev/shared-types';
 
 /** Response shape of POST /api/v1/calls/{id}/generate-ideas. */
@@ -144,6 +148,65 @@ export function useMe() {
     queryKey: queryKeys.me,
     queryFn: () => apiClient<MeResponse>('/api/v1/me'),
     staleTime: 60_000,
+  });
+}
+
+// ── Provenance ──────────────────────────────────────────────────────────
+
+export function useUpsertProvenance(proposalId: string) {
+  return useMutation({
+    mutationFn: (body: ProvenanceBatchRequest) =>
+      apiClient<ProvenanceBatchResponse>(
+        `/api/v1/proposals/${proposalId}/provenance`,
+        { method: 'POST', body },
+      ),
+  });
+}
+
+export function useProvenanceStats(proposalId: string) {
+  return useQuery({
+    queryKey: ['provenance', 'stats', proposalId] as const,
+    queryFn: () =>
+      apiClient<ProvenanceStatsResponse>(
+        `/api/v1/proposals/${proposalId}/provenance/stats`,
+      ),
+    enabled: Boolean(proposalId),
+  });
+}
+
+/**
+ * Fetch the saga-written sentence rows for a proposal so the editor
+ * can re-attach provenance marks atop the persisted draft markdown
+ * when the user opens the page.
+ *
+ * Pagination is server-driven via ``next_offset``; callers that need
+ * the full list can fold over the response in a follow-up.
+ */
+export function useProvenanceItems(
+  proposalId: string,
+  options?: { section?: string; limit?: number },
+) {
+  const section = options?.section;
+  const limit = options?.limit;
+  return useQuery({
+    queryKey: [
+      'provenance',
+      'items',
+      proposalId,
+      section ?? null,
+      limit ?? null,
+    ] as const,
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (section) params.set('section', section);
+      if (limit !== undefined) params.set('limit', String(limit));
+      const qs = params.toString();
+      const suffix = qs.length > 0 ? `?${qs}` : '';
+      return apiClient<ProvenanceListResponse>(
+        `/api/v1/proposals/${proposalId}/provenance${suffix}`,
+      );
+    },
+    enabled: Boolean(proposalId),
   });
 }
 

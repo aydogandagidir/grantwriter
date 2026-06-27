@@ -359,6 +359,7 @@ async def _send_invitation_email_after_create(
         role=role,
         expires_at=expires_at,
         invitation_id=invitation_id,
+        conn=conn,
     )
 
     if result.status == "failed":
@@ -679,6 +680,7 @@ async def _notify_owners_of_member_added(
             new_member_role=new_member_role,
             tenant_name=tenant_name,
             invitation_id=invitation_id,
+            conn=conn,
         )
         if result.status == "failed":
             try:

@@ -469,6 +469,18 @@
     "exportFailed": "Export failed: {error}",
     "exportNoUrl": "Export finished but produced no file for this programme."
   },
+  "provenance": {
+    "tabTitle": "Provenance",
+    "title": "AI / human authorship",
+    "loading": "Loading provenance…",
+    "loadError": "Could not load provenance stats.",
+    "emptyDescription": "Provenance starts populating as soon as the AI agents or you write content.",
+    "totalSentences": "{count} sentences tracked",
+    "breakdownAria": "Source breakdown",
+    "disclosureHeading": "AI Use disclosure preview (HE Page 32)",
+    "copy": "Copy disclosure",
+    "copied": "Copied"
+  },
   "proposalEditor": {
     "placeholder": "Start writing or select text and pick an AI command…",
     "sectionLabel": "{section} section",

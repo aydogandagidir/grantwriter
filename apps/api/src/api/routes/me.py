@@ -24,7 +24,7 @@ ownerless tenant exist would orphan billing + audit + proposals.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -329,7 +329,7 @@ async def export_my_data(
         },
     )
     return UserDataExport(
-        exported_at=datetime.utcnow(),
+        exported_at=datetime.now(UTC),
         user=user,
         tenant=tenant,
         audit_events=audit_events,

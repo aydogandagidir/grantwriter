@@ -218,6 +218,120 @@ async def test_full_saga_completes_when_all_agents_succeed() -> None:
     assert conn.execute.await_count >= 3
 
 
+async def test_auto_snapshot_fires_on_successful_completion() -> None:
+    """After the saga commits draft + final status, it inserts one
+    ``proposal_versions`` row stamped ``auto-snapshot after generation``.
+
+    Failures in the snapshot path must NOT flip the saga's status —
+    the user can always re-snapshot manually. We mock fetchrow to
+    return a row containing version_number + id so the audit hook
+    fires; the auto_snapshot SQL is identified by the snapshot-comment
+    literal in its bound args.
+    """
+
+    from unittest.mock import AsyncMock
+
+    saga, conn, _publisher = _build_saga()
+
+    # Give every fetchrow call something reasonable. The auto-snapshot
+    # INSERT RETURNING expects id + version_number + created_by; the
+    # email-lookup needs title + tenant_id + owner_email; the proposal
+    # row read uses tenant_id. A union dict covers them all.
+    rich_row = {
+        "id": uuid4(),
+        "tenant_id": uuid4(),
+        "programme_id": "horizon_eu_ria",
+        "language": "en",
+        "brief": '{"problem_statement": "test"}',
+        "call_id": None,
+        "title": "Test Proposal",
+        "owner_email": "owner@example.com",
+        "created_by": uuid4(),
+        "version_number": 1,
+    }
+    conn.fetchrow = AsyncMock(return_value=rich_row)
+
+    result = await saga.run()
+    assert result.status == "draft_complete"
+
+    # The auto-snapshot SQL is the only fetchrow that passes the
+    # ``auto-snapshot after generation`` literal as $2.
+    auto_calls = [
+        call
+        for call in conn.fetchrow.await_args_list
+        if "auto-snapshot after generation" in str(call)
+    ]
+    assert len(auto_calls) == 1
+
+
+async def test_saga_fires_provenance_recorder_on_success() -> None:
+    """After the writers complete, the saga should call into the
+    provenance recorder so the FE provenance panel + HE AI disclosure
+    have real per-sentence data to show. Mock the recorder so the test
+    doesn't need a DB."""
+
+    from unittest.mock import AsyncMock, patch
+
+    saga, _conn, _publisher = _build_saga()
+
+    with patch(
+        "src.orchestrator.draft_generator.provenance_recorder.record",
+        new=AsyncMock(return_value=42),
+    ) as recorder_mock:
+        result = await saga.run()
+
+    assert result.status == "draft_complete"
+    assert recorder_mock.await_count == 1
+    call_kwargs = recorder_mock.await_args.kwargs
+    assert call_kwargs["proposal_id"] == saga.proposal_id
+    assert "excellence_writer" in call_kwargs["agent_outputs"]
+
+
+async def test_provenance_recorder_failure_does_not_break_saga() -> None:
+    """A bug inside the recorder must be swallowed — the saga is
+    transactional for the user-visible draft, not for the per-sentence
+    log. Operator can re-run the recorder offline."""
+
+    from unittest.mock import AsyncMock, patch
+
+    saga, _conn, _publisher = _build_saga()
+
+    with patch(
+        "src.orchestrator.draft_generator.provenance_recorder.record",
+        new=AsyncMock(side_effect=RuntimeError("simulated recorder crash")),
+    ):
+        result = await saga.run()
+
+    assert result.status == "draft_complete"
+
+
+async def test_auto_snapshot_failure_does_not_break_saga() -> None:
+    """A DB hiccup inside the snapshot path must be swallowed so the
+    saga keeps its green status. We make every fetchrow raise *after*
+    the saga's main success path so the snapshot path crashes."""
+
+    from unittest.mock import AsyncMock
+
+    saga, conn, _publisher = _build_saga()
+
+    # First two fetchrow calls (proposal load) succeed; subsequent calls
+    # (email lookup + auto-snapshot) raise. The saga must still return
+    # ``draft_complete``.
+    proposal_row = _proposal_row()
+    call_count = {"n": 0}
+
+    async def flaky_fetchrow(*_args: Any, **_kwargs: Any) -> Any:
+        call_count["n"] += 1
+        if call_count["n"] <= 1:
+            return proposal_row
+        raise RuntimeError("simulated DB hiccup")
+
+    conn.fetchrow = AsyncMock(side_effect=flaky_fetchrow)
+
+    result = await saga.run()
+    assert result.status == "draft_complete"
+
+
 async def test_blocking_hunt_flips_status_to_with_issues() -> None:
     blocking_hunt = _ok(
         "hallucination_hunter",
