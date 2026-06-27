@@ -114,6 +114,28 @@ class UserDataExport(BaseModel):
     proposals_authored: list[ProposalSummary]
 
 
+class MeResponse(BaseModel):
+    """Identity + tenant snapshot for the calling user.
+
+    Consumed by the FE's authenticated app shell (``(app)/layout.tsx``)
+    to decide between rendering the dashboard and redirecting to
+    ``/onboarding``. The shape mirrors
+    ``packages/shared-types/src/index.ts::MeResponse`` — keep both halves
+    in sync when adding fields.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    user_id: UUID
+    email: str | None
+    display_name: str | None
+    role: str
+    tenant_id: UUID
+    tenant_name: str
+    tenant_slug: str
+    plan: str
+
+
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
@@ -238,6 +260,37 @@ async def _load_proposals(
 
 
 # ── Routes ─────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "",
+    response_model=MeResponse,
+    summary="Identity + tenant snapshot for the calling user",
+)
+async def get_me(
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+) -> MeResponse:
+    """Return the caller's user + tenant projection.
+
+    Used by the FE app shell to decide whether to render the dashboard
+    or redirect to onboarding. Returns 404 (caught by the FE layout) if
+    the Supabase auth user has no corresponding ``public.users`` row —
+    that's how the layout knows to redirect a fresh signup to the
+    onboarding wizard.
+    """
+
+    user, tenant = await _load_user(conn, user_id=user_id)
+    return MeResponse(
+        user_id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        role=user.role,
+        tenant_id=tenant.id,
+        tenant_name=tenant.name,
+        tenant_slug=tenant.slug,
+        plan=tenant.plan,
+    )
 
 
 @router.get(
@@ -366,6 +419,7 @@ async def delete_my_account(
 
 __all__ = [
     "AuditEventSummary",
+    "MeResponse",
     "ProposalSummary",
     "TenantSummary",
     "UsageEventSummary",

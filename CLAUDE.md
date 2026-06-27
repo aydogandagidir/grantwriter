@@ -92,7 +92,7 @@ bluedev-grantwriter/
 ├── infra/
 │   ├── supabase/               # Migrations, RLS policies
 │   ├── docker-compose.yml      # Local dev
-│   └── railway.json            # Production deploy
+│   └── render.yaml             # Production deploy (Render Blueprint)
 │
 ├── docs/                       # All architecture docs (this package)
 ├── scripts/                    # Helper scripts (seed data, etc.)

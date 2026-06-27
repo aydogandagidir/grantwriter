@@ -182,7 +182,7 @@ def full_required_env() -> dict[str, str]:
     """Build a placeholder env that covers every required key."""
 
     keys = _parse_required_keys(_example_path())
-    return {key: "placeholder" for key in keys}
+    return dict.fromkeys(keys, "placeholder")
 
 
 def _run_preflight_with_env(env_vars: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -225,7 +225,10 @@ def test_preflight_check_passes_with_full_env(
         f"preflight exited {result.returncode}; stderr:\n{result.stderr}"
     )
     assert "all" in result.stdout.lower()
-    assert "required production env vars set" in result.stdout
+    # Match the stable part of the success line, not the "set"/"OK" word —
+    # the bash script's success message tracks the Python preflight's
+    # wording ("... env vars OK") and shouldn't be re-broken on parity tweaks.
+    assert "required production env vars" in result.stdout
 
 
 @pytest.mark.skipif(not _bash_available(), reason="bash not on PATH")
@@ -251,3 +254,326 @@ def test_preflight_check_fails_when_one_required_var_missing(
     assert dropped_key in result.stderr, (
         f"missing key {dropped_key} should appear in stderr:\n{result.stderr}"
     )
+
+
+# ── Bash ↔ Python parity: placeholder + DSN-bracket detection ──────────
+#
+# preflight-check.sh now mirrors src/core/preflight.py's three-layer
+# check (set / placeholder / bracketed-host). These assert the bash side
+# catches the same two footguns the Python side does, so CI / pre-push
+# (which run the bash script) fail on the same inputs the lifespan would.
+
+_skip_no_bash = pytest.mark.skipif(not _bash_available(), reason="bash not on PATH")
+_skip_win_nonbash = pytest.mark.skipif(
+    sys.platform == "win32"
+    and shutil.which("bash") is not None
+    and "git" not in (shutil.which("bash") or "").lower(),
+    reason="non-Git-Bash on Windows can't run POSIX scripts",
+)
+
+
+@_skip_no_bash
+@_skip_win_nonbash
+def test_bash_preflight_flags_placeholder(
+    full_required_env: dict[str, str],
+) -> None:
+    """A leftover ``<ref>`` placeholder MUST fail the bash check too —
+    parity with the Python preflight that caught the prod ``postgres.<ref>``."""
+
+    env = dict(full_required_env)
+    env["DATABASE_URL"] = "postgresql://postgres.<ref>:pw@host:5432/postgres"
+
+    result = _run_preflight_with_env(env)
+    assert result.returncode == 1, f"expected exit 1; stderr:\n{result.stderr}"
+    assert "DATABASE_URL" in result.stderr
+    assert "placeholder" in result.stderr
+    assert "<ref>" in result.stderr
+
+
+@_skip_no_bash
+@_skip_win_nonbash
+def test_bash_preflight_flags_bracketed_hostname(
+    full_required_env: dict[str, str],
+) -> None:
+    """A pooler hostname left in IPv6-template brackets MUST fail — this
+    is the urlsplit-crash DSN, caught before the container even boots."""
+
+    env = dict(full_required_env)
+    env["DATABASE_URL"] = (
+        "postgresql://u:pw@[aws-1-eu-central-1.pooler.supabase.com]:5432/postgres"
+    )
+
+    result = _run_preflight_with_env(env)
+    assert result.returncode == 1, f"expected exit 1; stderr:\n{result.stderr}"
+    assert "DATABASE_URL" in result.stderr
+    assert "IPv6" in result.stderr
+
+
+@_skip_no_bash
+@_skip_win_nonbash
+def test_bash_preflight_allows_real_ipv6_brackets(
+    full_required_env: dict[str, str],
+) -> None:
+    """A genuine IPv6 literal legally uses [...] — the bash check MUST NOT
+    flag it (matches the Python side's ipaddress allowance). With every
+    other required var present, this is a clean exit 0."""
+
+    env = dict(full_required_env)
+    env["DATABASE_URL"] = "postgresql://u:pw@[2406:da18:243:7400::1]:5432/postgres"
+
+    result = _run_preflight_with_env(env)
+    assert result.returncode == 0, (
+        f"real IPv6 DSN should pass; got {result.returncode}; stderr:\n{result.stderr}"
+    )
+
+
+# ── Python preflight module tests (Sprint 4 hardening) ─────────────────
+#
+# These cover ``src/core/preflight.py``, the lifespan-side preflight that
+# always runs in production regardless of how the host's start command is
+# configured. The bash tests above remain because that script is the
+# OPS-side wrapper (CI, pre-push, manual checks); the Python checks below
+# are the runtime safety net.
+
+from src.core.preflight import (  # noqa: E402 — kept with the rest of the module
+    PreflightError,
+    check_env,
+    run_preflight,
+)
+from src.core.preflight import _example_path as _preflight_example_path  # noqa: E402
+from src.core.preflight import _strict_mode_enabled as _py_strict_mode_enabled  # noqa: E402
+from src.core.preflight import parse_required_keys as _py_parse_required_keys  # noqa: E402
+
+
+def test_python_parser_matches_bash_parser_on_example() -> None:
+    """Both implementations MUST agree on which keys are required.
+
+    Drift between the two would silently weaken whichever path the
+    deploy actually uses — the bash one or the Python one. Both walk
+    the example file with equivalent regex; this asserts they produce
+    the same list against the real file.
+    """
+
+    bash_keys = _parse_required_keys(_example_path())
+    py_keys = _py_parse_required_keys(_preflight_example_path())
+    assert py_keys == bash_keys
+    # Sanity floor: every var we burned a deploy cycle on must be here.
+    for sentinel in ("APP_ENV", "DATABASE_URL", "SUPABASE_URL", "SUPABASE_JWT_SECRET"):
+        assert sentinel in py_keys, f"{sentinel} missing from required set"
+
+
+def test_check_env_flags_missing_key() -> None:
+    errors = check_env(["FOO"], env={})
+    assert [(e.key, "not set" in e.message) for e in errors] == [("FOO", True)]
+
+
+def test_check_env_flags_empty_string() -> None:
+    """Set-but-empty is the same failure mode as unset — caught the same."""
+
+    errors = check_env(["FOO"], env={"FOO": ""})
+    assert [(e.key, "not set" in e.message) for e in errors] == [("FOO", True)]
+
+
+def test_check_env_flags_placeholder_substring() -> None:
+    """The exact footgun: an operator pastes the template and forgets to
+    substitute ``<ref>``. Preflight catches it instead of letting it
+    reach Supavisor as ``postgres.<ref>`` and 503 with ``tenant not
+    found``.
+    """
+
+    errors = check_env(
+        ["DATABASE_URL"],
+        env={"DATABASE_URL": "postgresql://postgres.<ref>:pw@host:5432/postgres"},
+    )
+    assert len(errors) == 1
+    assert errors[0].key == "DATABASE_URL"
+    assert "placeholder" in errors[0].message
+    assert "<ref>" in errors[0].message
+
+
+def test_check_env_flags_bracketed_non_ipv6_database_url() -> None:
+    """The other deploy-blocking DSN shape: keeping IPv6-template
+    brackets around a pooler hostname. Crashes ``urllib.parse`` on
+    Python 3.11+ before asyncpg ever sees the DSN.
+    """
+
+    errors = check_env(
+        ["DATABASE_URL"],
+        env={
+            "DATABASE_URL": (
+                "postgresql://u:pw@[aws-1-eu-central-1.pooler.supabase.com]:5432/postgres"
+            )
+        },
+    )
+    assert len(errors) == 1
+    assert errors[0].key == "DATABASE_URL"
+    assert "IPv6" in errors[0].message
+    assert "remove the brackets" in errors[0].message.lower()
+
+
+def test_check_env_allows_real_ipv6_brackets() -> None:
+    """Genuine IPv6 literals legally use ``[...]`` — must NOT flag those."""
+
+    errors = check_env(
+        ["DATABASE_URL"],
+        env={"DATABASE_URL": "postgresql://u:pw@[2406:da18:243:7400::1]:5432/postgres"},
+    )
+    assert errors == []
+
+
+def test_check_env_happy_path_returns_empty() -> None:
+    errors = check_env(
+        ["APP_ENV", "DATABASE_URL"],
+        env={
+            "APP_ENV": "production",
+            "DATABASE_URL": "postgresql://u:pw@host.example.com:5432/db",
+        },
+    )
+    assert errors == []
+
+
+def test_preflight_error_format_line_is_actionable() -> None:
+    """The string surfaced to the deploy log must name BOTH the key and
+    the problem so an operator can act without digging into the source.
+    """
+
+    line = PreflightError("DATABASE_URL", "required but not set").format_line()
+    assert "DATABASE_URL" in line
+    assert "required but not set" in line
+
+
+# ── run_preflight: warn-vs-strict mode (Sprint 4 hotfix) ───────────────
+#
+# PR #33 originally shipped run_preflight() as a hard SystemExit gate. On
+# the Sprint 4 production env — where Supabase secrets land first and
+# Iyzico/Resend/Sentry land in a later wave — that gate boot-looped the
+# container the moment the merge hit Render. These tests pin down the
+# warn-by-default + PREFLIGHT_STRICT opt-in behaviour so a regression to
+# strict-by-default can never quietly recur.
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("true", True),
+        ("TRUE", True),
+        ("True", True),
+        ("1", True),
+        ("yes", True),
+        ("on", True),
+        ("  true  ", True),  # surrounding whitespace tolerated
+        ("false", False),
+        ("0", False),
+        ("no", False),
+        ("off", False),
+        ("", False),
+        ("anything-else", False),
+    ],
+)
+def test_strict_mode_enabled_recognises_truthy_values(value: str, expected: bool) -> None:
+    """The truthy set MUST be explicit. Operators tend to write "yes"/"on"/
+    "1" interchangeably; quietly rejecting any of them would silently keep
+    preflight in warn-only mode and defeat the opt-in."""
+
+    assert _py_strict_mode_enabled({"PREFLIGHT_STRICT": value}) is expected
+
+
+def _write_stub_example(path: Path, required_key: str = "FOO") -> Path:
+    """Build a minimal example file with one REQUIRED key — keeps the
+    run_preflight tests independent of the real .env.production.example
+    drift."""
+
+    path.write_text(
+        f"# ── REQUIRED ──\n{required_key}=<placeholder-for-tests>\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_run_preflight_returns_silently_when_env_complete(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Happy path: every REQUIRED var set, no placeholders, valid DSN
+    shape — preflight logs the success line on stdout and returns."""
+
+    example = _write_stub_example(tmp_path / "stub.env.example")
+    monkeypatch.setattr("src.core.preflight._example_path", lambda: example)
+    monkeypatch.setenv("FOO", "real-value-here")
+    monkeypatch.delenv("PREFLIGHT_STRICT", raising=False)
+
+    run_preflight()
+
+    captured = capsys.readouterr()
+    assert "all 1 required production env vars OK" in captured.out
+    assert captured.err == ""
+
+
+def test_run_preflight_warns_by_default_when_required_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Default (PREFLIGHT_STRICT unset) MUST be warn-only — log errors to
+    stderr but return so the lifespan continues. Anything else takes
+    production down on a partial env, exactly the regression PR #33
+    caused before this hotfix."""
+
+    example = _write_stub_example(tmp_path / "stub.env.example")
+    monkeypatch.setattr("src.core.preflight._example_path", lambda: example)
+    monkeypatch.delenv("FOO", raising=False)
+    monkeypatch.delenv("PREFLIGHT_STRICT", raising=False)
+
+    # MUST NOT raise — the whole point of the hotfix.
+    run_preflight()
+
+    captured = capsys.readouterr()
+    assert "WARN" in captured.err
+    assert "FOO" in captured.err
+    assert "warn-only mode" in captured.err.lower()
+    assert "PREFLIGHT_STRICT" in captured.err  # hint to opt into strict
+
+
+def test_run_preflight_exits_when_strict_mode_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Opt-in strict MUST hard-fail — that's the gate's whole job once
+    the operator has confirmed every var is wired."""
+
+    example = _write_stub_example(tmp_path / "stub.env.example")
+    monkeypatch.setattr("src.core.preflight._example_path", lambda: example)
+    monkeypatch.delenv("FOO", raising=False)
+    monkeypatch.setenv("PREFLIGHT_STRICT", "true")
+
+    with pytest.raises(SystemExit) as exc:
+        run_preflight()
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.err
+    assert "FOO" in captured.err
+    assert "redeploy" in captured.err.lower()
+
+
+def test_run_preflight_exit_2_on_missing_example_regardless_of_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Packaging bug (example file absent) MUST exit 2 in BOTH modes —
+    we can't preflight what we can't read, strict or not."""
+
+    missing = tmp_path / "does-not-exist.env.example"
+    monkeypatch.setattr("src.core.preflight._example_path", lambda: missing)
+    monkeypatch.delenv("PREFLIGHT_STRICT", raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        run_preflight()
+    assert exc.value.code == 2
+
+    monkeypatch.setenv("PREFLIGHT_STRICT", "true")
+    with pytest.raises(SystemExit) as exc:
+        run_preflight()
+    assert exc.value.code == 2

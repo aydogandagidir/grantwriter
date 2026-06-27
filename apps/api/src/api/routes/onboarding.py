@@ -1,36 +1,31 @@
-"""Post-signup workspace bootstrap.
+"""Self-service onboarding — tenant provisioning for new sign-ups.
 
-A Supabase user lands here right after email confirmation: the JWT is
-valid, but they don't have a ``public.users`` row yet. The FE's
-onboarding wizard collects a workspace name + locale, then POSTs to
-``/api/v1/onboarding/workspace`` to create the tenant + link the
-caller as its first owner.
+Sprint 4 Day 16: When a Supabase auth user exists but has no
+``public.users`` row (post-signup, pre-onboarding), the frontend
+redirects to ``/onboarding``.  This endpoint lets the user create a
+new tenant + user row in a single atomic transaction.
 
-Why a dedicated endpoint and not a generic ``POST /tenants``?
+Single endpoint:
 
-- We're the only insert point for new tenants — non-invitee flows go
-  through here exclusively. The endpoint can therefore enforce the
-  "one workspace per signup" invariant in app code without a generic
-  CRUD surface tempting future callers to bypass it.
-- The audit row stamps ``tenant.created`` with the source so an
-  operator scanning the audit log can spot anomalies (one user
-  bootstrapping ten workspaces).
+- ``POST /api/v1/onboarding`` — Create a new tenant and register the
+  caller as its ``owner``.  Body: ``{name, slug, preferred_language?}``.
 
-All paid-plan onboarding flows defer to Iyzico checkout — this route
-always provisions on the **starter** plan. Upgrades land via the
-billing endpoints + Iyzico webhook.
+Guards:
+  - The caller must have a valid Supabase JWT (i.e. ``auth.users`` row).
+  - If the caller already has a ``public.users`` row → 409 Conflict.
+  - Slug uniqueness is enforced by the DB unique constraint.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import Annotated, Literal
-from uuid import UUID, uuid4
+from typing import Annotated
+from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.core.audit import write_audit_event
 from src.core.auth import CurrentUserId
@@ -40,191 +35,180 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/onboarding", tags=["onboarding"])
 
-
-# Slug rule: lowercase letters / digits / single hyphens, 3-40 chars.
-# Matches what tenants.slug column tolerates AND keeps URLs clean.
-_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-_SLUG_MIN_LEN = 3
-_SLUG_MAX_LEN = 40
-
-# Starter plan defaults — kept in sync with src/billing/plan_mapping.py.
-_STARTER_PLAN = "starter"
-_STARTER_MONTHLY_PROPOSAL_LIMIT = 3
+_SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]$")
 
 
 # ── Models ─────────────────────────────────────────────────────────────
 
 
-class WorkspaceCreateRequest(BaseModel):
-    """Wizard step 1 body.
-
-    ``slug`` is optional — when absent we derive it from the name. The
-    server-side slug normalisation guarantees URL-safety and avoids
-    putting that burden on the FE; the FE can still validate locally
-    for instant feedback.
-    """
+class OnboardingRequest(BaseModel):
+    """``POST /api/v1/onboarding`` body."""
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=2, max_length=100)
-    slug: str | None = Field(default=None, min_length=_SLUG_MIN_LEN, max_length=_SLUG_MAX_LEN)
-    preferred_language: Literal["tr", "en"] = "tr"
+    name: str = Field(min_length=2, max_length=100, description="Workspace display name")
+    slug: str = Field(min_length=3, max_length=50, description="URL-safe workspace slug")
+    preferred_language: str = Field(
+        default="tr",
+        description="User's preferred language (tr or en)",
+    )
+
+    @field_validator("slug")
+    @classmethod
+    def validate_slug(cls, v: str) -> str:
+        v = v.lower().strip()
+        if not _SLUG_PATTERN.match(v):
+            raise ValueError(
+                "Slug must be 3-50 characters, lowercase alphanumeric and hyphens, "
+                "starting and ending with a letter or digit."
+            )
+        return v
+
+    @field_validator("preferred_language")
+    @classmethod
+    def validate_language(cls, v: str) -> str:
+        if v not in ("tr", "en"):
+            raise ValueError("preferred_language must be 'tr' or 'en'")
+        return v
 
 
-class WorkspaceCreatedResponse(BaseModel):
-    """``201`` body — FE redirects to ``/dashboard`` after this."""
+class OnboardingResponse(BaseModel):
+    """Returned after successful onboarding."""
 
     model_config = ConfigDict(frozen=True)
 
     tenant_id: UUID
-    slug: str
-    role: Literal["owner"]
-    plan: str
-
-
-# ── Helpers ────────────────────────────────────────────────────────────
-
-
-def _derive_slug(name: str) -> str:
-    """Normalise a free-text name to a URL-safe slug.
-
-    Lowercases, collapses non-alphanumeric runs into single hyphens,
-    trims hyphens at the edges, and tail-suffixes a uuid4 fragment when
-    the result would be too short (e.g. all-emoji names). The collision
-    case is handled separately by the caller — derive_slug only fixes
-    *shape*, not *uniqueness*.
-    """
-
-    cleaned = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    if len(cleaned) < _SLUG_MIN_LEN:
-        cleaned = f"workspace-{uuid4().hex[:8]}"
-    return cleaned[:_SLUG_MAX_LEN]
-
-
-async def _user_already_in_a_tenant(
-    conn: asyncpg.Connection, *, user_id: UUID
-) -> bool:
-    """True iff caller has a ``public.users`` row (active or deleted).
-
-    A soft-deleted row still occupies the PK — letting the caller
-    create a new tenant would either crash on the unique constraint or
-    silently turn into a re-activation. Either way: reject.
-    """
-
-    return bool(
-        await conn.fetchval(
-            "select exists (select 1 from public.users where id = $1)",
-            user_id,
-        )
-    )
+    tenant_name: str
+    tenant_slug: str
+    user_id: UUID
+    role: str
 
 
 # ── Route ──────────────────────────────────────────────────────────────
 
 
 @router.post(
-    "/workspace",
-    response_model=WorkspaceCreatedResponse,
+    "",
+    response_model=OnboardingResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create the caller's first workspace + link them as owner",
+    summary="Create a new workspace (tenant) and register the caller as owner",
 )
 async def create_workspace(
     user_id: CurrentUserId,
     conn: Annotated[asyncpg.Connection, Depends(get_db)],
-    body: WorkspaceCreateRequest,
-) -> WorkspaceCreatedResponse:
-    """One-shot bootstrap: insert tenant, link owner, audit.
+    body: OnboardingRequest,
+) -> OnboardingResponse:
+    """Provision a new tenant and ``public.users`` row atomically.
 
-    Status codes:
-    - 201: created — body carries the new tenant id + slug + plan.
-    - 400: requested slug failed validation.
-    - 403: auth.users row is missing (rare — Supabase user deleted
-      between login and POST).
-    - 409: caller already belongs to a tenant, or slug is taken.
+    This is the self-service onboarding path for users who signed up via
+    Supabase Auth but have not yet been assigned to a tenant (no invite).
+
+    Guards:
+    - 409 if the caller already has a ``public.users`` row.
+    - 409 if the slug is already taken (DB unique constraint).
     """
 
-    caller_email = await conn.fetchval(
-        "select email from auth.users where id = $1", user_id
+    # Check if the user already has a public.users row
+    existing = await conn.fetchval(
+        "select id from public.users where id = $1",
+        user_id,
     )
-    if caller_email is None:
+    if existing is not None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_409_CONFLICT,
+            detail="user already belongs to a workspace",
+        )
+
+    # Fetch display name / email from auth.users for the user row
+    auth_row = await conn.fetchrow(
+        "select email, raw_user_meta_data from auth.users where id = $1",
+        user_id,
+    )
+    if auth_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="auth user not found",
         )
 
-    if await _user_already_in_a_tenant(conn, user_id=user_id):
+    display_name: str | None = None
+    if auth_row["raw_user_meta_data"]:
+        meta = auth_row["raw_user_meta_data"]
+        if isinstance(meta, dict):
+            display_name = meta.get("display_name") or meta.get("full_name")
+
+    try:
+        async with conn.transaction():
+            # 1. Create the tenant
+            tenant_row = await conn.fetchrow(
+                """
+                insert into tenants (name, slug)
+                values ($1, $2)
+                returning id, name, slug
+                """,
+                body.name,
+                body.slug,
+            )
+            assert tenant_row is not None
+            tenant_id = UUID(str(tenant_row["id"]))
+
+            # 2. Create the public.users row as owner
+            await conn.execute(
+                """
+                insert into public.users (id, tenant_id, role, display_name, preferred_language)
+                values ($1, $2, 'owner', $3, $4)
+                """,
+                user_id,
+                tenant_id,
+                display_name,
+                body.preferred_language,
+            )
+
+            # 3. Audit event
+            await write_audit_event(
+                conn,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action="tenant.created",
+                resource_type="tenant",
+                resource_id=tenant_id,
+                diff={
+                    "name": body.name,
+                    "slug": body.slug,
+                    "plan": "starter",
+                },
+            )
+    except asyncpg.UniqueViolationError as exc:
+        constraint = getattr(exc, "constraint_name", "") or ""
+        if "slug" in constraint or "tenants_slug" in str(exc):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="this workspace slug is already taken",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="user already belongs to a tenant",
-        )
-
-    requested_slug = body.slug or _derive_slug(body.name)
-    if not _SLUG_PATTERN.fullmatch(requested_slug):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "slug must be lowercase letters / digits / single hyphens "
-                f"({_SLUG_MIN_LEN}-{_SLUG_MAX_LEN} chars)"
-            ),
-        )
-
-    if await conn.fetchval(
-        "select exists (select 1 from tenants where slug = $1)", requested_slug
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="slug already taken",
-        )
-
-    tenant_id = uuid4()
-    async with conn.transaction():
-        await conn.execute(
-            """
-            insert into tenants (
-              id, name, slug, plan,
-              monthly_proposal_limit, monthly_proposals_used
-            ) values ($1, $2, $3, $4, $5, 0)
-            """,
-            tenant_id,
-            body.name,
-            requested_slug,
-            _STARTER_PLAN,
-            _STARTER_MONTHLY_PROPOSAL_LIMIT,
-        )
-        await conn.execute(
-            """
-            insert into public.users (id, tenant_id, role, preferred_language)
-            values ($1, $2, 'owner', $3)
-            """,
-            user_id,
-            tenant_id,
-            body.preferred_language,
-        )
-        await write_audit_event(
-            conn,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            action="tenant.created",
-            resource_type="tenant",
-            resource_id=tenant_id,
-            diff={"source": "onboarding", "plan": _STARTER_PLAN},
-        )
+            detail="workspace creation conflict",
+        ) from exc
 
     logger.info(
         "workspace_created",
         extra={
             "tenant_id": str(tenant_id),
             "user_id": str(user_id),
-            "slug": requested_slug,
-            "plan": _STARTER_PLAN,
+            "slug": body.slug,
         },
     )
-    return WorkspaceCreatedResponse(
+
+    return OnboardingResponse(
         tenant_id=tenant_id,
-        slug=requested_slug,
+        tenant_name=str(tenant_row["name"]),
+        tenant_slug=str(tenant_row["slug"]),
+        user_id=user_id,
         role="owner",
-        plan=_STARTER_PLAN,
     )
 
 
-__all__ = ["WorkspaceCreateRequest", "WorkspaceCreatedResponse", "router"]
+__all__ = [
+    "OnboardingRequest",
+    "OnboardingResponse",
+    "router",
+]

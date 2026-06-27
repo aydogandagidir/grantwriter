@@ -64,38 +64,6 @@ export interface ProvenanceListResponse {
   next_offset: number | null;
 }
 
-// ── Proposals ───────────────────────────────────────────────────────────
-
-export interface ProposalDraft {
-  excellence_md: string;
-  impact_md: string;
-  implementation_md: string;
-}
-
-export interface ProposalRead {
-  id: string;
-  title: string | null;
-  status: string;
-  language: string;
-  programme_id: string;
-  draft: ProposalDraft;
-}
-
-// ── Onboarding ──────────────────────────────────────────────────────────
-
-export interface WorkspaceCreateRequest {
-  name: string;
-  slug?: string;
-  preferred_language: 'tr' | 'en';
-}
-
-export interface WorkspaceCreatedResponse {
-  tenant_id: string;
-  slug: string;
-  role: 'owner';
-  plan: PlanName;
-}
-
 // ── /me ──────────────────────────────────────────────────────────────────
 
 export interface MeResponse {
@@ -310,4 +278,353 @@ export interface HuntReport {
 export interface ValidationReport {
   compliance: ComplianceReport;
   hallucination_hunter: HuntReport | null;
+}
+
+// ── Programmes (catalog) ────────────────────────────────────────────────
+
+export type ProgrammeLanguage = 'tr' | 'en' | 'both';
+
+export interface ProgrammeSummary {
+  id: string;
+  name_tr: string;
+  name_en: string;
+  funder: string;
+  language: ProgrammeLanguage;
+  description_tr: string | null;
+  description_en: string | null;
+  active: boolean;
+}
+
+export interface ProgrammeListResponse {
+  programmes: ProgrammeSummary[];
+}
+
+// ── Calls (open-call catalog) ───────────────────────────────────────────
+
+export type CallSource =
+  | 'eu_ft_portal'
+  | 'nlnet'
+  | 'cascade'
+  | 'tubitak'
+  | 'kosgeb'
+  | 'manual';
+
+export type CallStatus = 'open' | 'closing_soon' | 'closed' | 'draft';
+
+export interface CallSummary {
+  id: string;
+  programme_id: string;
+  agency_id: string | null;
+  source: CallSource;
+  external_id: string;
+  title: string;
+  language: string;
+  status: CallStatus;
+  deadline: string | null;
+  opening_at: string | null;
+  call_url: string | null;
+  topic_keywords: string[];
+  sectors: string[];
+  geo_scope: string[];
+  eligibility_tags: string[];
+  budget_per_project_min_eur: number | null;
+  budget_per_project_max_eur: number | null;
+  trl_min: number | null;
+  trl_max: number | null;
+  funding_rate_pct: number | null;
+  partner_consortium_required: boolean | null;
+  scraped_at: string;
+}
+
+export interface CallListResponse {
+  calls: CallSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Detail-page payload — everything the API surfaces on one call. */
+export interface CallDetail extends CallSummary {
+  scope_summary: string | null;
+  call_text: string | null;
+  call_pdf_url: string | null;
+  application_form_url: string | null;
+  work_programme_pdf_url: string | null;
+  source_url_canonical: string | null;
+  budget_total_eur: number | null;
+  eligibility_summary: Record<string, unknown>;
+  raw_metadata: Record<string, unknown>;
+  historical_acceptance_rate: number | null;
+  last_seen_at: string;
+}
+
+export type CallSortKey = 'deadline' | 'budget' | 'relevance' | 'recency';
+
+/** Query-string params accepted by GET /api/v1/calls. */
+export interface CallSearchFilters {
+  q?: string;
+  programme_ids?: string[];
+  agency_ids?: string[];
+  source?: CallSource;
+  status_filter?: CallStatus;
+  deadline_after?: string;
+  deadline_before?: string;
+  budget_min_eur?: number;
+  budget_max_eur?: number;
+  trl_min?: number;
+  trl_max?: number;
+  sectors?: string[];
+  eligibility_tags?: string[];
+  geo_scope?: string[];
+  language?: 'tr' | 'en';
+  sort?: CallSortKey;
+  limit?: number;
+  offset?: number;
+}
+
+// ── Project ideas + bidirectional matching (Faz 2) ───────────────────────
+
+export type IdeaStatus = 'draft' | 'active' | 'archived';
+export type IdeaSource = 'user_input' | 'generated_from_call' | 'imported';
+
+export interface IdeaCreate {
+  title: string;
+  abstract: string;
+  technology_angle?: string;
+  target_market?: string;
+  trl_estimate?: number;
+  budget_estimate_eur_min?: number;
+  budget_estimate_eur_max?: number;
+  team_size_estimate?: number;
+  sectors?: string[];
+  keywords?: string[];
+  source?: IdeaSource;
+  seed_call_id?: string;
+}
+
+export interface IdeaSummary {
+  id: string;
+  title: string;
+  abstract: string;
+  technology_angle: string | null;
+  target_market: string | null;
+  trl_estimate: number | null;
+  budget_estimate_eur_min: number | null;
+  budget_estimate_eur_max: number | null;
+  team_size_estimate: number | null;
+  sectors: string[];
+  keywords: string[];
+  distinctiveness_score: number | null;
+  status: IdeaStatus;
+  source: IdeaSource;
+  seed_call_id: string | null;
+  created_at: string;
+}
+
+export interface IdeaListResponse {
+  ideas: IdeaSummary[];
+  total: number;
+}
+
+/** One ranked call in an idea-match response, with score breakdown. */
+export interface CallMatchOut {
+  call_id: string;
+  total_score: number;
+  semantic_score: number;
+  keyword_overlap_score: number;
+  sector_score: number;
+  trl_fit_score: number;
+  budget_fit_score: number;
+  rationale_tr: string;
+  rationale_en: string;
+  identified_gaps: string[];
+  call_title: string | null;
+  programme_id: string | null;
+  deadline: string | null;
+}
+
+export interface IdeaMatchResponse {
+  idea_id: string;
+  matches: CallMatchOut[];
+  filter_stats: Record<string, number>;
+  computed_at: string;
+  model_version: string;
+}
+
+// ── Organization profile (Faz 2) ─────────────────────────────────────────
+
+export type EntityType =
+  | 'individual'
+  | 'sme'
+  | 'university'
+  | 'large_corp'
+  | 'ngo'
+  | 'research_org';
+
+export interface OrganizationProfileUpsert {
+  legal_name?: string;
+  entity_type?: EntityType;
+  country?: string;
+  nuts_region?: string;
+  nace_codes?: string[];
+  sectors?: string[];
+  team_size?: number;
+  annual_revenue_eur?: number;
+  founded_year?: number;
+  technology_areas?: string[];
+  trl_current?: number;
+  trl_target?: number;
+  expertise_keywords?: string[];
+  past_projects?: Record<string, unknown>[];
+  funding_history?: Record<string, unknown>[];
+  preferred_languages?: string[];
+}
+
+export interface OrganizationProfile {
+  tenant_id: string;
+  legal_name: string | null;
+  entity_type: EntityType | null;
+  country: string | null;
+  nuts_region: string | null;
+  nace_codes: string[];
+  sectors: string[];
+  team_size: number | null;
+  annual_revenue_eur: number | null;
+  founded_year: number | null;
+  technology_areas: string[];
+  trl_current: number | null;
+  trl_target: number | null;
+  expertise_keywords: string[];
+  past_projects: Record<string, unknown>[];
+  funding_history: Record<string, unknown>[];
+  preferred_languages: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CallCreate {
+  programme_id: string;
+  external_id: string;
+  title: string;
+  language: 'tr' | 'en';
+  source?: CallSource;
+  call_text?: string;
+  call_url?: string;
+  call_pdf_url?: string;
+  deadline?: string;
+  budget_total_eur?: number;
+  budget_per_project_min_eur?: number;
+  budget_per_project_max_eur?: number;
+  trl_min?: number;
+  trl_max?: number;
+  topic_keywords?: string[];
+  raw_metadata?: Record<string, unknown>;
+}
+
+// ── Proposals (CRUD) ────────────────────────────────────────────────────
+
+export type ProposalStatus =
+  | 'draft'
+  | 'brief_complete'
+  | 'generating'
+  | 'draft_complete'
+  | 'in_review'
+  | 'validated'
+  | 'exported'
+  | 'submitted'
+  | 'funded'
+  | 'rejected'
+  | 'archived';
+
+/**
+ * Status values the HTTP caller may set via PATCH. Saga-managed states
+ * (`generating`, `draft_complete`, `validated`) are intentionally
+ * excluded — those flip server-side as the pipeline progresses.
+ */
+export type ProposalStatusPatchable =
+  | 'draft'
+  | 'brief_complete'
+  | 'in_review'
+  | 'archived';
+
+export interface ProposalSummary {
+  id: string;
+  programme_id: string;
+  language: string;
+  title: string | null;
+  acronym: string | null;
+  status: ProposalStatus;
+  call_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+  word_count: number;
+  llm_cost_usd: number;
+}
+
+export interface ProposalListResponse {
+  proposals: ProposalSummary[];
+}
+
+export interface ProposalDetail {
+  id: string;
+  tenant_id: string;
+  programme_id: string;
+  language: string;
+  title: string | null;
+  acronym: string | null;
+  status: ProposalStatus;
+  call_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+  brief: Record<string, unknown>;
+  draft: Record<string, unknown>;
+  compliance_report: Record<string, unknown>;
+  distinctiveness_score: number | null;
+  ai_disclosure_text: string | null;
+  word_count: number;
+  page_count: number;
+  llm_cost_usd: number;
+}
+
+export interface ProposalCreate {
+  programme_id: string;
+  language: 'tr' | 'en';
+  title?: string;
+  acronym?: string;
+  call_id?: string;
+  brief?: Record<string, unknown>;
+}
+
+export interface ProposalUpdate {
+  title?: string | null;
+  acronym?: string | null;
+  call_id?: string | null;
+  brief?: Record<string, unknown>;
+  draft?: Record<string, unknown>;
+  status?: ProposalStatusPatchable;
+}
+
+/**
+ * Body of POST /proposals/{id}/generate response. The job_id maps to
+ * a Celery task; the FE polls `/api/v1/jobs/{job_id}` or subscribes
+ * to the SSE stream URL for progress.
+ */
+export interface GenerateEnqueued {
+  job_id: string;
+  proposal_id: string;
+  estimated_duration_seconds: number;
+  status_url: string;
+  stream_url: string;
+}
+
+/**
+ * Body of POST /proposals/{id}/export response.
+ */
+export interface ExportEnqueued {
+  job_id: string;
+  status: string;
+  proposal_id: string;
+  format: 'docx' | 'xlsx';
 }

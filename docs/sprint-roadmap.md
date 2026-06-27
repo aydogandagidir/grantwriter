@@ -296,4 +296,39 @@ Faz 2 ve sonrası bu sprint planının dışı, ancak bugün alınan mimari kara
 
 ---
 
+## 8. Sprint 4 Day 16 — Gerçekleşen (Production Hardening Addendum)
+
+> Plandaki Day 16 (Aşama A-D, production deploy) fiilen tamamlandı, ancak bring-up planlanandan daha çetin geçti: 5 ardışık config/altyapı failure'ı art arda çıktı. Hepsi koda/altyapıya kalıcı koruma olarak işlendi. Detaylı operasyon kılavuzu: **`docs/11-operations-runbook.md`** (incident kataloğu §5).
+
+### Yaşanan failure zinciri → kalıcı çözüm
+
+| # | Failure | Kalıcı koruma | PR |
+|---|---|---|---|
+| 1 | Frontend favicon 404 + date hydration crash | `app/icon.svg`, next-intl `timeZone`/`now` | #30 |
+| 2 | Eksik prod env → `JWT not configured` 503 | (env wiring) + preflight | #33/#36 |
+| 3 | `DATABASE_URL` host `[...]` → urlsplit crash | `db.py::_normalize_dsn` | #30 |
+| 4 | Strict preflight → eksik env'de boot loop | warn-by-default + `PREFLIGHT_STRICT` opt-in | #36 |
+| 5 | `.dockerignore` template'i siliyor → build fail | `!.env.production.example` exception | #37 |
+| 6 | DB upstream down → boot crash-loop | resilient lifespan + `/health/db` | #38 |
+| 7 | Supabase restore sonrası manuel redeploy gerek | `/health/db` lazy retry (self-heal) | #39 |
+
+### Kazanılan kalıcı yetenekler
+
+- **Frontend CI** (`web-ci.yml`): her PR'da typecheck + lint + vitest (eskiden yalnız Vercel build) — PR #32/#34.
+- **Production preflight** (`core/preflight.py`): eksik env / `<placeholder>` / bozuk DSN'i boot'ta net mesajla yakalar; warn-default, strict opt-in — PR #33/#36.
+- **Graceful degradation:** DB upstream herhangi bir sebepten düşse app ayakta kalır (`/health` 200), `/health/db` nedeni raporlar, upstream dönünce self-heal eder — PR #38/#39.
+- **Smoke test** (`scripts/smoke.sh`): tek komutla backend + frontend + favicon doğrulama — PR #35.
+- **Operations runbook** (`docs/11-operations-runbook.md`): incident kataloğu + recovery prosedürleri — PR #40.
+
+### Daimi İlke #4 istisnası (kayıt için)
+Bölüm 7 madde 4 "self-merge yok" der. Bu production-down recovery zinciri (PR #36-39) tek operatör tarafından, her PR CI-yeşil + atomik + adversarial-verified olarak self-merge edildi — incident aciliyeti gereği. Normal feature akışı code-review kuralına döner.
+
+### Açık (opsiyonel) kuyruk
+- `infra/render.yaml` IaC (mevcut `infra/railway.json` deployed gerçeği yansıtmıyor — Render kullanılıyor).
+- `scripts/preflight-check.sh` (bash) ile `core/preflight.py` (Python) arasında placeholder/DSN kontrol paritesi.
+- Custom domain `app.bluedev.dev` / `api.bluedev.dev` (şu an `*.vercel.app` / `*.onrender.com`).
+- `PREFLIGHT_STRICT=true`'ya geçiş — tüm REQUIRED env matrisi tamamlandığında (Aşama D).
+
+---
+
 **Sonraki dosya:** `prompts/claude-code-prompts.md` — Her görevi Claude Code'a verecek hazır promptlar.

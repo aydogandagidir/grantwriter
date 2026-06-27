@@ -93,6 +93,127 @@ class CorpusRetriever:
             logger.exception("rerank_failed_falling_back_to_ann_order")
             return candidates[:top_k]
 
+    async def retrieve_guideline(
+        self,
+        query: str,
+        *,
+        call_id: UUID | None = None,
+        programme_id: str | None = None,
+        section: str | None = None,
+        top_k: int = DEFAULT_TOP_K,
+        candidate_pool: int = DEFAULT_CANDIDATE_POOL,
+        rerank: bool = True,
+    ) -> list[RetrievedChunk]:
+        """Embed → ANN search → optional LLM re-rank, against funder
+        guideline chunks rather than past successful proposals.
+
+        At least one of ``call_id`` or ``programme_id`` must be set; both
+        is fine and scopes more tightly. ``section`` is optional — when
+        omitted, retrieval ranges over every detected heading.
+
+        The chunks live in ``funder_guideline_chunks``, populated by
+        :class:`~src.rag.guideline_ingestor.GuidelineIngestor`. Writer
+        agents (ExcellenceWriter, ImpactWriter, ImplementationWriter)
+        consume this to see the actual evaluation criteria + scope text
+        from the funder, not just the model's pretrained knowledge.
+        """
+
+        if top_k <= 0:
+            return []
+        if call_id is None and programme_id is None:
+            raise ValueError("call_id or programme_id required for guideline retrieval")
+
+        candidate_pool = max(candidate_pool, top_k)
+        embedding = await self._embedder.embed(query)
+        candidates = await self._fetch_guideline_candidates(
+            embedding=embedding,
+            call_id=call_id,
+            programme_id=programme_id,
+            section=section,
+            limit=candidate_pool,
+        )
+        if not candidates:
+            return []
+
+        if not rerank or self._router is None or len(candidates) <= top_k:
+            return candidates[:top_k]
+
+        try:
+            return await self._llm_rerank(query, candidates, top_k)
+        except Exception:
+            logger.exception("guideline_rerank_failed_falling_back_to_ann_order")
+            return candidates[:top_k]
+
+    async def _fetch_guideline_candidates(
+        self,
+        *,
+        embedding: list[float],
+        call_id: UUID | None,
+        programme_id: str | None,
+        section: str | None,
+        limit: int,
+    ) -> list[RetrievedChunk]:
+        """ANN scan over ``funder_guideline_chunks``."""
+
+        vec_literal = _vector_literal(embedding)
+        clauses: list[str] = []
+        params: list[Any] = [vec_literal]
+        if call_id is not None:
+            clauses.append(f"fg.call_id = ${len(params) + 1}")
+            params.append(call_id)
+        if programme_id is not None:
+            clauses.append(f"fg.programme_id = ${len(params) + 1}")
+            params.append(programme_id)
+        if section is not None:
+            clauses.append(f"fgc.section = ${len(params) + 1}")
+            params.append(section)
+        where = " AND ".join(clauses) if clauses else "TRUE"
+        params.append(limit)
+
+        query = f"""
+            SELECT
+              fgc.id,
+              fgc.guideline_id AS corpus_id,
+              fgc.section,
+              fgc.content,
+              fgc.metadata,
+              fg.title,
+              fg.document_type AS topic_id,
+              1 - (fgc.embedding::halfvec(3072) <=> $1::halfvec(3072)) AS score
+            FROM funder_guideline_chunks fgc
+            JOIN funder_guidelines fg ON fg.id = fgc.guideline_id
+            WHERE {where}
+            ORDER BY fgc.embedding::halfvec(3072) <=> $1::halfvec(3072), fgc.id ASC
+            LIMIT ${len(params)}
+        """
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+
+        out: list[RetrievedChunk] = []
+        for row in rows:
+            raw_meta = row["metadata"]
+            meta: dict[str, Any]
+            if isinstance(raw_meta, str):
+                meta = json.loads(raw_meta) if raw_meta else {}
+            elif isinstance(raw_meta, dict):
+                meta = raw_meta
+            else:
+                meta = {}
+            out.append(
+                RetrievedChunk(
+                    id=row["id"],
+                    corpus_id=row["corpus_id"],
+                    section=row["section"],
+                    content=row["content"],
+                    score=float(row["score"]),
+                    title=row["title"],
+                    topic_id=row["topic_id"],
+                    metadata=meta,
+                )
+            )
+        return out
+
     async def _fetch_candidates(
         self,
         *,
@@ -241,4 +362,4 @@ def _parse_ranked_ids(text: str) -> list[str]:
     return [s for s in items if s]
 
 
-__all__ = ["CorpusRetriever", "DEFAULT_CANDIDATE_POOL", "DEFAULT_TOP_K"]
+__all__ = ["DEFAULT_CANDIDATE_POOL", "DEFAULT_TOP_K", "CorpusRetriever"]

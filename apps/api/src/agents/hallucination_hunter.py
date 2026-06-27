@@ -257,7 +257,7 @@ class HallucinationHunter(BaseAgent):
     async def stream(self, input: AgentInput) -> AsyncIterator[str]:
         result = await self.run(input)
         # Hunter is structured-JSON; one chunk is enough.
-        yield result.output and str(result.output) or ""
+        yield (result.output and str(result.output)) or ""
 
     @staticmethod
     def _previous_section(input: AgentInput, agent_id: str, key: str) -> str:

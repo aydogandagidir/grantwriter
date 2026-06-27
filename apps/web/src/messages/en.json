@@ -28,7 +28,14 @@
       "submit": "Log in",
       "noAccount": "No account?",
       "signUp": "Sign up",
-      "invalidCredentials": "Email or password is incorrect."
+      "invalidCredentials": "Email or password is incorrect.",
+      "authErrors": {
+        "otp_expired": "Your confirmation link has expired or was already used. Please sign up again to receive a fresh link.",
+        "access_denied": "That link is no longer valid. Please request a new confirmation email.",
+        "exchange_failed": "We couldn't complete sign-in from that link. Please try logging in, or sign up again.",
+        "missing_code": "This link is incomplete. Please use the most recent email we sent you.",
+        "generic": "Something went wrong with that link. Please try signing in again."
+      }
     },
     "signup": {
       "title": "Create an account",
@@ -45,7 +52,11 @@
   },
   "nav": {
     "dashboard": "Dashboard",
+    "discover": "Discover",
+    "calls": "Open Calls",
+    "ideas": "My Ideas",
     "proposals": "Proposals",
+    "organization": "Organization",
     "settings": "Settings",
     "llmConfig": "LLM Keys",
     "members": "Members",
@@ -196,6 +207,309 @@
     "saveEdit": "Update",
     "empty": "No comments yet."
   },
+  "calls": {
+    "title": "Open Calls",
+    "subtitle": "Live funder catalogue — search, filter, and pick the call that matches your idea.",
+    "searchPlaceholder": "Search title, topic, or keyword…",
+    "loading": "Loading calls…",
+    "empty": "No calls match these filters. Loosen the criteria and try again.",
+    "errorTitle": "Couldn't load calls",
+    "errorRetry": "Retry",
+    "resultCount": "{count, plural, =0 {No matches} =1 {1 match} other {# matches}}",
+    "sort": {
+      "label": "Sort",
+      "deadline": "Deadline (soonest)",
+      "budget": "Budget (highest)",
+      "recency": "Recently added",
+      "relevance": "Relevance"
+    },
+    "status": {
+      "open": "Open",
+      "closing_soon": "Closing soon",
+      "closed": "Closed",
+      "draft": "Draft"
+    },
+    "card": {
+      "deadline": "Deadline",
+      "noDeadline": "Rolling",
+      "budget": "Budget",
+      "trl": "TRL",
+      "consortium": "Consortium required",
+      "individual": "Individuals welcome",
+      "viewDetail": "View details",
+      "fundingRate": "{rate}% funding"
+    },
+    "filters": {
+      "title": "Filters",
+      "clearAll": "Clear all",
+      "programme": "Programme",
+      "agency": "Sub-programme",
+      "deadlineAfter": "Deadline after",
+      "deadlineBefore": "Deadline before",
+      "budgetMin": "Budget min (€)",
+      "budgetMax": "Budget max (€)",
+      "trlMin": "TRL min",
+      "trlMax": "TRL max",
+      "sectors": "Sectors",
+      "eligibility": "Eligibility",
+      "geoScope": "Geography",
+      "language": "Language",
+      "status": "Status",
+      "anyStatus": "Open + closing soon"
+    },
+    "pagination": {
+      "previous": "Previous",
+      "next": "Next",
+      "page": "Page {current} of {total}"
+    },
+    "detail": {
+      "back": "Back to calls",
+      "applyAt": "Apply on funder site",
+      "downloadWorkProgramme": "Download work programme (PDF)",
+      "applicationForm": "Application form",
+      "scopeSummary": "Scope",
+      "callText": "Full text",
+      "eligibility": "Eligibility",
+      "keyDates": "Key dates",
+      "openingAt": "Opens",
+      "deadline": "Deadline",
+      "metadata": "Source metadata",
+      "notFoundTitle": "Call not found",
+      "notFoundDescription": "This call may have been removed or never existed."
+    },
+    "discovery": {
+      "generateCta": "Generate project ideas for this call",
+      "generating": "Generating ideas… this takes a few seconds",
+      "generatedTitle": "Project ideas for this call",
+      "fromCache": "Cached",
+      "regenerate": "Regenerate",
+      "alignment": "{score}% aligned",
+      "consortium": "Suggested consortium",
+      "eligibilityCta": "Check my eligibility",
+      "checking": "Checking…",
+      "eligibilityTitle": "Eligibility check",
+      "confidence": "{score}% confidence",
+      "verdict": {
+        "ELIGIBLE": "Eligible",
+        "CONDITIONAL": "Conditional",
+        "NOT_ELIGIBLE": "Not eligible"
+      }
+    }
+  },
+  "discover": {
+    "title": "Discover Funding",
+    "subtitle": "Two ways in: start from your idea, or start from an open call.",
+    "ideaFirst": {
+      "title": "I have an idea",
+      "description": "Describe your project — we'll rank the open calls that fit it best, with a reason for each match.",
+      "cta": "Enter my idea"
+    },
+    "callFirst": {
+      "title": "Browse open calls",
+      "description": "Explore the live funder catalogue. Found a call you like? We'll generate project ideas tailored to it.",
+      "cta": "Browse calls"
+    }
+  },
+  "ideas": {
+    "listTitle": "My Ideas",
+    "listSubtitle": "Project ideas you've entered and their call matches.",
+    "empty": "No ideas yet — describe your first project to find matching calls.",
+    "newIdea": "New idea",
+    "new": {
+      "title": "Describe your project idea",
+      "subtitle": "The more concrete the abstract, the sharper the matches.",
+      "titleLabel": "Project title",
+      "titlePlaceholder": "e.g. Edge-AI predictive maintenance for factory PLCs",
+      "abstractLabel": "Abstract",
+      "abstractPlaceholder": "What does the project do, what's the technical approach, what outcome are you targeting? 120-400 words works best.",
+      "technologyAngleLabel": "Technology angle (optional)",
+      "targetMarketLabel": "Target market (optional)",
+      "trlLabel": "Current TRL (optional)",
+      "budgetMinLabel": "Budget min € (optional)",
+      "budgetMaxLabel": "Budget max € (optional)",
+      "sectorsLabel": "Sectors (comma-separated, optional)",
+      "keywordsLabel": "Keywords (comma-separated, optional)",
+      "submit": "Find matching calls",
+      "submitting": "Saving idea…"
+    },
+    "matches": {
+      "title": "Matched calls",
+      "subtitle": "Ranked open calls for your idea, with a score breakdown and the gaps to close.",
+      "runMatch": "Run matcher",
+      "rerun": "Re-run matcher",
+      "matching": "Matching… this takes a few seconds",
+      "empty": "No matches yet. Run the matcher to rank open calls for this idea.",
+      "noResults": "The matcher found no open calls that clear the hard filters. Broaden your idea's sectors or budget band and try again.",
+      "scoreBreakdown": "Score breakdown",
+      "semantic": "Semantic",
+      "keyword": "Keyword",
+      "sector": "Sector",
+      "trlFit": "TRL fit",
+      "budgetFit": "Budget fit",
+      "whyMatch": "Why this match?",
+      "gaps": "Gaps to close",
+      "viewCall": "View call",
+      "matchScore": "{score}% match"
+    }
+  },
+  "organization": {
+    "title": "Organization Profile",
+    "subtitle": "Drives eligibility checks and sharpens your call matches. Fill in what you can — the form saves progressively.",
+    "loading": "Loading profile…",
+    "emptyHint": "No profile yet. Add your organization details so we can check eligibility and tailor matches.",
+    "saved": "Profile saved",
+    "save": "Save profile",
+    "saving": "Saving…",
+    "fields": {
+      "legalName": "Legal name",
+      "entityType": "Organization type",
+      "country": "Country (ISO code, e.g. TR)",
+      "nutsRegion": "NUTS region (optional)",
+      "naceCodes": "NACE codes (comma-separated)",
+      "sectors": "Sectors (comma-separated)",
+      "teamSize": "Team size",
+      "annualRevenue": "Annual revenue €",
+      "foundedYear": "Founded year",
+      "technologyAreas": "Technology areas (comma-separated)",
+      "trlCurrent": "Current TRL",
+      "trlTarget": "Target TRL",
+      "expertiseKeywords": "Expertise keywords (comma-separated)",
+      "preferredLanguages": "Preferred languages (comma-separated)"
+    },
+    "entityTypes": {
+      "individual": "Individual",
+      "sme": "SME",
+      "university": "University",
+      "large_corp": "Large company",
+      "ngo": "NGO / Non-profit",
+      "research_org": "Research organization"
+    }
+  },
+  "proposals": {
+    "title": "Proposals",
+    "subtitle": "Drafts, briefs in progress, and exports — all in one place.",
+    "newProposal": "New proposal",
+    "empty": "No proposals yet. Create your first one.",
+    "columns": {
+      "title": "Title",
+      "programme": "Programme",
+      "status": "Status",
+      "created": "Created",
+      "cost": "Cost (USD)"
+    },
+    "status": {
+      "draft": "Draft",
+      "brief_complete": "Brief ready",
+      "generating": "Generating…",
+      "draft_complete": "Draft ready",
+      "in_review": "In review",
+      "validated": "Validated",
+      "exported": "Exported",
+      "submitted": "Submitted",
+      "funded": "Funded",
+      "rejected": "Rejected",
+      "archived": "Archived"
+    },
+    "untitled": "Untitled proposal",
+    "openProposal": "Open"
+  },
+  "newProposal": {
+    "title": "Create a new proposal",
+    "subtitle": "Pick a programme + language. You can fill in the brief on the next page.",
+    "programme": "Programme",
+    "programmePlaceholder": "Choose a funder programme",
+    "language": "Language",
+    "languageTr": "Türkçe",
+    "languageEn": "English",
+    "titleField": "Working title",
+    "titlePlaceholder": "Short label for your team — you can change it later",
+    "submit": "Create + open brief",
+    "submitting": "Creating…",
+    "errorGeneric": "Couldn't create the proposal. Try again."
+  },
+  "brief": {
+    "title": "Brief",
+    "subtitle": "Tell the agents what to write. Saved as you type.",
+    "summary": "Project summary",
+    "summaryPlaceholder": "1–2 paragraph plain-English summary the agents can riff on.",
+    "objectives": "Objectives",
+    "objectivesPlaceholder": "Bullet your main objectives, one per line.",
+    "methodology": "Methodology",
+    "methodologyPlaceholder": "How you'll execute — methods, milestones, partners.",
+    "partners": "Partners",
+    "partnersPlaceholder": "Org names + countries, one per line (HE consortium etc.).",
+    "save": "Save brief",
+    "saving": "Saving…",
+    "savedToast": "Brief saved.",
+    "markReady": "Mark brief ready",
+    "markReadyConfirm": "Lock the brief and proceed to generation? You can still edit afterwards.",
+    "errorGeneric": "Save failed. Your changes are still in the form."
+  },
+  "proposalDetail": {
+    "tabs": {
+      "draft": "Draft",
+      "validation": "Validation",
+      "versions": "Versions",
+      "comments": "Comments"
+    },
+    "metaProgramme": "Programme",
+    "metaStatus": "Status",
+    "metaCreated": "Created",
+    "metaCost": "LLM cost (USD)",
+    "draftEmpty": "No draft yet. Click \"Generate\" to run the saga.",
+    "generate": "Generate draft",
+    "generating": "Generating…",
+    "regenerate": "Regenerate draft",
+    "exportDocx": "Export DOCX",
+    "exportXlsx": "Export Lump Sum XLSX",
+    "exporting": "Sending to export…",
+    "exportQueued": "Export queued (job {jobId}). Check the jobs API for the download URL.",
+    "exportPreparing": "Preparing your file…",
+    "exportDownload": "Download file",
+    "exportFailed": "Export failed: {error}",
+    "exportNoUrl": "Export finished but produced no file for this programme."
+  },
+  "provenance": {
+    "tabTitle": "Provenance",
+    "title": "AI / human authorship",
+    "loading": "Loading provenance…",
+    "loadError": "Could not load provenance stats.",
+    "emptyDescription": "Provenance starts populating as soon as the AI agents or you write content.",
+    "totalSentences": "{count} sentences tracked",
+    "breakdownAria": "Source breakdown",
+    "disclosureHeading": "AI Use disclosure preview (HE Page 32)",
+    "copy": "Copy disclosure",
+    "copied": "Copied"
+  },
+  "proposalEditor": {
+    "placeholder": "Start writing or select text and pick an AI command…",
+    "sectionLabel": "{section} section",
+    "ai": {
+      "toolbarLabel": "AI rewrite tools",
+      "rewrite": "Rewrite",
+      "shorter": "Shorter",
+      "longer": "Longer",
+      "translateEn": "→ EN",
+      "translateTr": "→ TR",
+      "errorTitle": "Inline edit failed"
+    }
+  },
+  "generateProgress": {
+    "title": "Saga progress",
+    "subtitle": "Live updates from the agent pipeline.",
+    "started": "Saga started",
+    "agentStarted": "{agent} starting…",
+    "agentCompleted": "{agent} completed in {ms}ms",
+    "agentFailed": "{agent} failed",
+    "saga_complete": "Saga complete",
+    "saga_failed": "Saga failed: {error}",
+    "connecting": "Connecting to live updates…",
+    "noEventsYet": "Waiting for the first event…",
+    "closed": "Stream closed.",
+    "jobQueued": "Queued — waiting for a worker…",
+    "jobRunning": "Generation in progress (this can take 5-15 minutes)…",
+    "jobFailed": "Generation failed: {error}"
+  },
   "validation": {
     "title": "Compliance & citations",
     "subtitle": "Re-run the export gate against the current draft.",
@@ -232,60 +546,137 @@
     "rateLimit": "Too many requests. Slow down.",
     "quotaExceeded": "Plan limit reached. Upgrade in Billing."
   },
-  "sections": {
-    "aria": "Proposal sections",
-    "excellence": "Excellence",
-    "impact": "Impact",
-    "implementation": "Implementation"
-  },
-  "provenance": {
-    "tabTitle": "Provenance",
-    "title": "AI / human authorship",
-    "loading": "Loading provenance…",
-    "loadError": "Could not load provenance stats.",
-    "emptyDescription": "Provenance starts populating as soon as the AI agents or you write content.",
-    "totalSentences": "{count} sentences tracked",
-    "breakdownAria": "Source breakdown",
-    "disclosureHeading": "AI Use disclosure preview (HE Page 32)",
-    "copy": "Copy disclosure",
-    "copied": "Copied"
-  },
-  "editor": {
-    "placeholder": "Start writing — every sentence is tracked with provenance.",
-    "regionLabel": "Proposal editor",
-    "bold": "Bold",
-    "italic": "Italic",
-    "h1": "Heading 1",
-    "h2": "Heading 2",
-    "bullet": "Bulleted list",
-    "ordered": "Numbered list",
-    "saving": "Saving…",
-    "saved": "Saved",
-    "saveFailed": "Couldn't save provenance"
-  },
   "onboarding": {
-    "title": "Set up your workspace",
-    "subtitle": "Two quick steps. You can change every choice later in Settings.",
-    "stepIndicator": "Step {current} of {total}",
-    "step1Title": "Name your workspace",
-    "step1Description": "This is how your team will see this account. The slug becomes part of your URL.",
-    "nameLabel": "Workspace name",
-    "namePlaceholder": "Acme Labs",
-    "slugLabel": "URL slug (optional)",
-    "slugHint": "We'll derive one from the name if you skip this.",
-    "languageLabel": "Default language",
-    "step2Title": "Choose your starting plan",
-    "step2Description": "Starter is free with 3 proposals per month. Upgrade any time from Billing.",
-    "starterTitle": "Starter",
-    "starterPrice": "Free",
-    "starterFeatures": "3 proposals / month · BYOK supported · Community support",
-    "starterRecommended": "Starter is the right choice for evaluating Bluedev.",
-    "buttonNext": "Continue",
-    "buttonBack": "Back",
-    "buttonCreate": "Create workspace",
-    "buttonCreating": "Creating…",
-    "successToast": "Workspace ready — let's go!",
-    "errorSlugTaken": "That URL slug is already taken. Try another one.",
-    "errorInvalidSlug": "Slug must be lowercase letters, digits, and single hyphens (3-40 chars)."
+    "step1Title": "Create your workspace",
+    "step1Subtitle": "Where your team will manage grant applications.",
+    "step2Title": "Choose your language",
+    "step2Subtitle": "Set your interface and default application language.",
+    "workspaceName": "Workspace name",
+    "workspaceNamePlaceholder": "My Company Ltd.",
+    "workspaceSlug": "URL slug",
+    "slugDescription": "Your address: {domain}",
+    "preferredLanguage": "Preferred language",
+    "languageTrDesc": "Arayüz Türkçe",
+    "languageEnDesc": "Interface in English",
+    "next": "Continue",
+    "back": "Back",
+    "createWorkspace": "Create workspace",
+    "creating": "Creating…",
+    "errorGeneric": "Couldn't create the workspace. Please try again.",
+    "errorUnavailable": "The server is waking up. Please try again in a few seconds."
+  },
+  "marketing": {
+    "nav": {
+      "features": "Features",
+      "pricing": "Pricing",
+      "login": "Log in",
+      "signup": "Get started free"
+    },
+    "hero": {
+      "badge": "AI-powered grant writing",
+      "title": "Drop a call URL, get a draft proposal",
+      "subtitle": "Prepare your TÜBİTAK, KOSGEB, and Horizon Europe applications in minutes. Sourced, compliance-clean, distinctive.",
+      "cta": "Get started free",
+      "secondaryCta": "See features",
+      "note": "No credit card required · 3 proposals/month free"
+    },
+    "stats": {
+      "programs": { "value": "5+", "label": "Supported programs" },
+      "agents": { "value": "7", "label": "AI agents" },
+      "draftTime": { "value": "<60min", "label": "Draft time" },
+      "languages": { "value": "2", "label": "Languages (TR/EN)" }
+    },
+    "features": {
+      "title": "Why GrantWriter?",
+      "subtitle": "Combine grant expert knowledge with AI to accelerate your applications.",
+      "aiDraft": {
+        "title": "7 Expert AI Agents",
+        "description": "Excellence, Impact, Implementation writers and Compliance Reviewer automatically generate every section of your application."
+      },
+      "citations": {
+        "title": "Citation Verification",
+        "description": "Every reference is verified in real-time via Crossref and OpenAlex. Fabricated citation risk drops to near zero."
+      },
+      "compliance": {
+        "title": "AI Act & GDPR Compliance",
+        "description": "EU AI Act, KVKK, and GDPR compliant. AI disclosure texts are auto-generated."
+      },
+      "bilingual": {
+        "title": "Bilingual (TR/EN)",
+        "description": "Generate Turkish and English proposal drafts from the same brief."
+      },
+      "export": {
+        "title": "DOCX & Excel Export",
+        "description": "Export to TÜBİTAK PRODİS, Horizon Europe Standard Application Form, or Lump Sum Excel templates automatically."
+      },
+      "distinctiveness": {
+        "title": "Distinctiveness Score",
+        "description": "Compare your draft against 12K+ projects in the CORDIS database to calculate an originality score."
+      }
+    },
+    "programs": {
+      "title": "Supported Programs",
+      "subtitle": "5 main grant programs in Phase 1, more coming soon.",
+      "list": {
+        "tubitak1501": "TÜBİTAK 1501 — Industrial R&D",
+        "tubitak1507": "TÜBİTAK 1507 — SME R&D",
+        "kosgeb": "KOSGEB R&D and Innovation",
+        "horizonEU": "Horizon Europe RIA/IA",
+        "cascade": "Cascade Funding",
+        "nlnet": "NLnet (NGI)"
+      }
+    },
+    "cta": {
+      "title": "Prepare your first application now",
+      "subtitle": "3 proposals/month free. No credit card required.",
+      "button": "Sign up free"
+    },
+    "footer": {
+      "rights": "All rights reserved."
+    }
+  },
+  "pricing": {
+    "title": "Pricing",
+    "subtitle": "From SME to enterprise — a plan for every scale.",
+    "perMonth": "month",
+    "contactUs": "Contact us",
+    "popular": "Most popular",
+    "getStarted": "Get started free",
+    "contactSales": "Contact sales",
+    "login": "Log in",
+    "signup": "Get started free",
+    "rights": "All rights reserved.",
+    "home": "Home",
+    "plans": {
+      "starter": {
+        "name": "Starter",
+        "description": "For those getting started with grant writing."
+      },
+      "pro": {
+        "name": "Pro",
+        "description": "For SMEs and consultancies with serious applications."
+      },
+      "enterprise": {
+        "name": "Enterprise",
+        "description": "Custom solution for large organizations and agencies."
+      }
+    },
+    "features": {
+      "proposals3": "3 proposals per month",
+      "proposalsUnlimited": "Unlimited proposals",
+      "programs5": "5 grant programs",
+      "citations": "Citation verification",
+      "docxExport": "DOCX export",
+      "xlsxExport": "Lump Sum Excel",
+      "byok": "BYOK (bring your own key)",
+      "communitySupport": "Community support",
+      "prioritySupport": "Priority support",
+      "teamMembers": "Unlimited team members",
+      "dedicatedSupport": "Dedicated account manager",
+      "sla": "SLA guarantee",
+      "customIntegrations": "Custom integrations",
+      "selfHosted": "Self-hosted option",
+      "allExports": "All export formats"
+    }
   }
 }

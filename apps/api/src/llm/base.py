@@ -27,6 +27,14 @@ TaskName = Literal[
     "compliance_reviewer",
     "hallucination_hunter",
     "rerank",
+    # Faz 2 — bidirectional matching agents
+    "idea_generator",
+    "idea_matcher",
+    "eligibility_check",
+    "idea_distill",
+    "infer_profile",
+    # Faz 4 — editor inline AI surfaces (slash commands, citation helper)
+    "inline_rewrite",
 ]
 Role = Literal["user", "assistant"]
 
@@ -295,6 +303,76 @@ TASK_ROUTES: dict[TaskName, RouteEntry] = {
         temperature=0.0,
         max_tokens=512,
     ),
+    # ── Faz 2 — bidirectional matching ───────────────────────────────────
+    "idea_generator": RouteEntry(
+        # Creative — 3-5 distinct project ideas per call. Opus for quality;
+        # cost amortises across all tenants browsing the same call via the
+        # call_idea_suggestions cache.
+        primary_provider="claude",
+        primary_model="claude-opus-4-7",
+        fallback_provider="openai",
+        fallback_model="gpt-4o",
+        temperature=0.6,
+        max_tokens=6144,
+    ),
+    "idea_matcher": RouteEntry(
+        # Re-ranking top-10 candidate calls against one idea — sonnet's
+        # plenty. Low temperature for reproducibility (cache is keyed on
+        # idea + call set).
+        primary_provider="claude",
+        primary_model="claude-sonnet-4-6",
+        fallback_provider="openai",
+        fallback_model="gpt-4o-mini",
+        temperature=0.1,
+        max_tokens=4096,
+    ),
+    "eligibility_check": RouteEntry(
+        # Deterministic structured check (entity type, country, TRL band,
+        # consortium-required). Sonnet handles the nuanced rules; rule-
+        # based fast-path in EligibilityChecker handles the obvious cases
+        # without an LLM call.
+        primary_provider="claude",
+        primary_model="claude-sonnet-4-6",
+        fallback_provider="openai",
+        fallback_model="gpt-4o-mini",
+        temperature=0.0,
+        max_tokens=2048,
+    ),
+    "idea_distill": RouteEntry(
+        # Free-form user idea text → structured fields (sectors, keywords,
+        # TRL, budget bands). Lightweight; runs on every idea creation.
+        primary_provider="claude",
+        primary_model="claude-sonnet-4-6",
+        fallback_provider="openai",
+        fallback_model="gpt-4o-mini",
+        temperature=0.2,
+        max_tokens=2048,
+    ),
+    "infer_profile": RouteEntry(
+        # Website URL → organization profile fields. Runs once during
+        # onboarding (Smart Inference).
+        primary_provider="claude",
+        primary_model="claude-sonnet-4-6",
+        fallback_provider="openai",
+        fallback_model="gpt-4o-mini",
+        temperature=0.0,
+        max_tokens=2048,
+    ),
+    # ── Faz 4 — editor inline AI surfaces ────────────────────────────────
+    "inline_rewrite": RouteEntry(
+        # Slash-command rewrites in the TipTap editor (/rewrite,
+        # /shorter, /longer, /translate-en, /translate-tr). Small
+        # context — one selected paragraph plus a few sentences of
+        # surrounding text — so Sonnet-class is plenty. Slight
+        # temperature lets /rewrite produce variation; deterministic
+        # commands like /shorter clamp it back via the system prompt.
+        primary_provider="claude",
+        primary_model="claude-sonnet-4-6",
+        fallback_provider="openai",
+        fallback_model="gpt-4o-mini",
+        temperature=0.3,
+        max_tokens=1024,
+    ),
 }
 
 
@@ -303,6 +381,8 @@ def route_for(task: TaskName) -> RouteEntry:
 
 
 __all__ = [
+    "PRICING",
+    "TASK_ROUTES",
     "LLMError",
     "LLMMessage",
     "LLMProvider",
@@ -312,10 +392,8 @@ __all__ = [
     "LLMUnrecoverableError",
     "LLMUsage",
     "ModelPricing",
-    "PRICING",
     "ProviderName",
     "RouteEntry",
-    "TASK_ROUTES",
     "TaskName",
     "calculate_cost",
     "route_for",

@@ -16,5 +16,15 @@ export default getRequestConfig(async ({ requestLocale }) => {
   return {
     locale,
     messages: (await import(`../messages/${locale}.json`)).default,
+    // A fixed timeZone + now is REQUIRED to avoid hydration mismatches.
+    // Without `timeZone`, next-intl formats `dateTime` with the runtime's
+    // local zone — UTC on the server, the visitor's zone in the browser —
+    // so the same value renders differently on each side. Likewise
+    // `relativeTime` needs a shared `now`, otherwise server render time vs.
+    // client hydration time diverge. A mismatch corrupts React's fiber
+    // tree and surfaces as a commit-phase "insertBefore" NotFoundError.
+    // Bluedev is a Türkiye-based product, so we anchor display to İstanbul.
+    timeZone: 'Europe/Istanbul',
+    now: new Date(),
   };
 });

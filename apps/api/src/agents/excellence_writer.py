@@ -71,7 +71,7 @@ def _split_by_heading(md: str, heading_keys: list[str]) -> dict[str, str]:
     """
 
     if not md.strip():
-        return {key: "" for key in heading_keys}
+        return dict.fromkeys(heading_keys, "")
 
     # Build a regex that finds any of the prefixes (B1, B2, B3, B4).
     prefixes = sorted({k.split("_", 1)[0] for k in heading_keys}, key=len, reverse=True)
@@ -81,7 +81,7 @@ def _split_by_heading(md: str, heading_keys: list[str]) -> dict[str, str]:
     )
     matches = list(pattern.finditer(md))
 
-    bodies: dict[str, str] = {key: "" for key in heading_keys}
+    bodies: dict[str, str] = dict.fromkeys(heading_keys, "")
     for i, m in enumerate(matches):
         prefix = m.group(1)
         start = m.end()

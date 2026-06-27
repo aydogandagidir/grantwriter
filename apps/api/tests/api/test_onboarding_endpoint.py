@@ -1,14 +1,13 @@
-"""Tests for ``POST /api/v1/onboarding/workspace``.
+"""Tests for the self-service onboarding endpoint.
 
 Covers:
 
-- Happy path: tenant + public.users row created, audit row written,
-  body returns ``role='owner'`` + ``plan='starter'``.
-- Slug auto-derivation when body omits it; deterministic shape check.
-- Slug validation rejects junk; collision returns 409.
-- User-already-in-a-tenant blocked with 409 (covers both active member
-  and soft-deleted leftover rows).
-- Missing auth.users row → 403.
+- POST /api/v1/onboarding creates a tenant + public.users row atomically
+  and writes a ``tenant.created`` audit event.
+- 409 if the caller already belongs to a tenant (duplicate user row).
+- 409 if the slug is already taken (unique constraint violation).
+- 422 if the slug format is invalid.
+- 422 if the request body is missing or has bad fields.
 
 Skips when ``TEST_DATABASE_URL`` is unset.
 """
@@ -55,197 +54,301 @@ async def pool(database_url: str) -> AsyncIterator[asyncpg.Pool]:
         await pool.close()
 
 
-async def _make_auth_only_user(pool: asyncpg.Pool) -> tuple[uuid.UUID, str]:
-    """auth.users row only — the post-signup state."""
-
+async def _make_auth_only_user(
+    pool: asyncpg.Pool, *, email: str | None = None
+) -> tuple[uuid.UUID, str]:
+    """Create an auth.users row only — user who signed up but never onboarded."""
     user_id = uuid.uuid4()
-    email = f"u-{user_id}@example.com"
+    user_email = email or f"u-{user_id}@example.com"
     async with pool.acquire() as conn:
         await conn.execute(
-            "insert into auth.users (id, email) values ($1, $2)", user_id, email
+            "insert into auth.users (id, email) values ($1, $2)",
+            user_id,
+            user_email,
         )
-    return user_id, email
+    return user_id, user_email
+
+
+async def _make_full_user(
+    pool: asyncpg.Pool,
+    *,
+    role: str = "owner",
+    email: str | None = None,
+) -> tuple[uuid.UUID, uuid.UUID, str]:
+    """Create a tenant + auth.users + public.users (already onboarded)."""
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    user_email = email or f"u-{user_id}@example.com"
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "insert into tenants (id, name, slug) values ($1, $2, $3)",
+            tenant_id,
+            "Existing Tenant",
+            f"existing-{tenant_id}",
+        )
+        await conn.execute(
+            "insert into auth.users (id, email) values ($1, $2)",
+            user_id,
+            user_email,
+        )
+        await conn.execute(
+            "insert into public.users (id, tenant_id, role) values ($1, $2, $3)",
+            user_id,
+            tenant_id,
+            role,
+        )
+    return tenant_id, user_id, user_email
 
 
 async def _cleanup(
     pool: asyncpg.Pool,
+    tenant_ids: list[uuid.UUID],
     user_ids: list[uuid.UUID],
 ) -> None:
     async with pool.acquire() as conn:
-        # The endpoint may have created tenants for these users; find +
-        # cascade their dependents before deleting the auth rows.
-        tenant_ids = await conn.fetch(
-            "select id from tenants where id in "
-            "(select tenant_id from public.users where id = any($1::uuid[]))",
-            user_ids,
-        )
-        tids = [row["id"] for row in tenant_ids]
-        if tids:
+        if tenant_ids:
             await conn.execute(
-                "delete from audit_log where tenant_id = any($1::uuid[])", tids
+                "delete from audit_log where tenant_id = any($1::uuid[])",
+                tenant_ids,
             )
-        await conn.execute(
-            "delete from public.users where id = any($1::uuid[])", user_ids
-        )
-        await conn.execute(
-            "delete from auth.users where id = any($1::uuid[])", user_ids
-        )
-        if tids:
+        if user_ids:
             await conn.execute(
-                "delete from tenants where id = any($1::uuid[])", tids
+                "delete from public.users where id = any($1::uuid[])",
+                user_ids,
+            )
+            await conn.execute(
+                "delete from auth.users where id = any($1::uuid[])",
+                user_ids,
+            )
+        if tenant_ids:
+            await conn.execute(
+                "delete from tenants where id = any($1::uuid[])", tenant_ids
             )
 
 
 def _build_client(
-    *, pool: asyncpg.Pool, user_id: uuid.UUID | None
+    *, pool: asyncpg.Pool, user_id: uuid.UUID
 ) -> tuple[FastAPI, AsyncClient]:
+    """Build app + httpx client with dependency overrides."""
     app = create_app()
 
     async def _fake_db() -> AsyncIterator[asyncpg.Connection]:
         async with pool.acquire() as conn:
             yield conn
 
-    if user_id is not None:
-        app.dependency_overrides[get_current_user_id] = lambda: user_id
+    app.dependency_overrides[get_current_user_id] = lambda: user_id
     app.dependency_overrides[get_db] = _fake_db
     transport = ASGITransport(app=app)
     return app, AsyncClient(transport=transport, base_url="http://test")
 
 
-# ── Tests ──────────────────────────────────────────────────────────────
+# ── Happy path ─────────────────────────────────────────────────────────
 
 
-async def test_post_workspace_creates_tenant_and_links_owner(
-    pool: asyncpg.Pool,
-) -> None:
-    user_id, _email = await _make_auth_only_user(pool)
+async def test_onboarding_creates_tenant_and_user(pool: asyncpg.Pool) -> None:
+    """New auth-only user creates workspace → 201, tenant + user created."""
+    user_id, _user_email = await _make_auth_only_user(pool)
+    slug = f"test-{user_id.hex[:12]}"
+    created_tenant_ids: list[uuid.UUID] = []
     try:
         _app, client = _build_client(pool=pool, user_id=user_id)
         async with client:
             response = await client.post(
-                "/api/v1/onboarding/workspace",
+                "/api/v1/onboarding",
                 json={
-                    "name": "Acme Labs",
-                    "slug": "acme-labs",
+                    "name": "My Test Workspace",
+                    "slug": slug,
                     "preferred_language": "en",
                 },
             )
-        assert response.status_code == 201
+        assert response.status_code == 201, response.text
         body = response.json()
-        assert body["slug"] == "acme-labs"
+        assert body["tenant_name"] == "My Test Workspace"
+        assert body["tenant_slug"] == slug
         assert body["role"] == "owner"
-        assert body["plan"] == "starter"
+        assert body["user_id"] == str(user_id)
+        created_tenant_ids.append(uuid.UUID(body["tenant_id"]))
 
-        # Side effects: public.users row exists with the right tenant + lang.
+        # Verify DB state
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "select tenant_id, role, preferred_language "
-                "from public.users where id = $1",
+            user_row = await conn.fetchrow(
+                "select tenant_id, role, preferred_language from public.users where id = $1",
                 user_id,
             )
-            audit = await conn.fetchrow(
-                "select action, diff::text as d from audit_log "
-                "where tenant_id = $1 and action = 'tenant.created'",
-                uuid.UUID(body["tenant_id"]),
+            tenant_row = await conn.fetchrow(
+                "select name, slug, plan from tenants where id = $1",
+                created_tenant_ids[0],
             )
-        assert row is not None
-        assert str(row["tenant_id"]) == body["tenant_id"]
-        assert row["role"] == "owner"
-        assert row["preferred_language"] == "en"
-        assert audit is not None
-        assert "onboarding" in audit["d"]
+            audit_rows = await conn.fetch(
+                "select action, diff::text as d from audit_log where tenant_id = $1",
+                created_tenant_ids[0],
+            )
+
+        assert user_row is not None
+        assert user_row["role"] == "owner"
+        assert user_row["preferred_language"] == "en"
+        assert tenant_row is not None
+        assert tenant_row["name"] == "My Test Workspace"
+        assert tenant_row["slug"] == slug
+        assert tenant_row["plan"] == "starter"  # default plan
+        assert len(audit_rows) == 1
+        assert audit_rows[0]["action"] == "tenant.created"
     finally:
-        await _cleanup(pool, [user_id])
+        await _cleanup(pool, created_tenant_ids, [user_id])
 
 
-async def test_slug_auto_derived_when_omitted(pool: asyncpg.Pool) -> None:
-    """Free-text name → lowercased, hyphen-joined slug."""
-
+async def test_onboarding_defaults_to_turkish(pool: asyncpg.Pool) -> None:
+    """When preferred_language is omitted, defaults to 'tr'."""
     user_id, _ = await _make_auth_only_user(pool)
+    slug = f"tr-{user_id.hex[:12]}"
+    created_tenant_ids: list[uuid.UUID] = []
     try:
         _app, client = _build_client(pool=pool, user_id=user_id)
         async with client:
             response = await client.post(
-                "/api/v1/onboarding/workspace",
-                json={"name": "Acme Labs LLC!"},
+                "/api/v1/onboarding",
+                json={"name": "Türkçe Workspace", "slug": slug},
             )
         assert response.status_code == 201
-        assert response.json()["slug"].startswith("acme-labs-llc")
+        created_tenant_ids.append(uuid.UUID(response.json()["tenant_id"]))
+
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "select preferred_language from public.users where id = $1",
+                user_id,
+            )
+        assert row is not None
+        assert row["preferred_language"] == "tr"
     finally:
-        await _cleanup(pool, [user_id])
+        await _cleanup(pool, created_tenant_ids, [user_id])
 
 
-async def test_invalid_slug_returns_400(pool: asyncpg.Pool) -> None:
-    """Uppercase + underscore + colon should all fail."""
+# ── Conflict cases ─────────────────────────────────────────────────────
 
+
+async def test_onboarding_409_if_already_has_tenant(pool: asyncpg.Pool) -> None:
+    """User who already belongs to a workspace cannot create another one."""
+    tenant_id, user_id, _ = await _make_full_user(pool)
+    try:
+        _app, client = _build_client(pool=pool, user_id=user_id)
+        async with client:
+            response = await client.post(
+                "/api/v1/onboarding",
+                json={"name": "Second WS", "slug": f"s-{user_id.hex[:12]}"},
+            )
+        assert response.status_code == 409
+        assert "already belongs" in response.json()["detail"]
+    finally:
+        await _cleanup(pool, [tenant_id], [user_id])
+
+
+async def test_onboarding_409_if_slug_already_taken(pool: asyncpg.Pool) -> None:
+    """Duplicate slug → 409 with meaningful error message."""
+    user_a_id, _ = await _make_auth_only_user(pool)
+    user_b_id, _ = await _make_auth_only_user(pool)
+    shared_slug = f"dup-{uuid.uuid4().hex[:10]}"
+    created_tenant_ids: list[uuid.UUID] = []
+    try:
+        # First user takes the slug
+        _app, client_a = _build_client(pool=pool, user_id=user_a_id)
+        async with client_a:
+            resp_a = await client_a.post(
+                "/api/v1/onboarding",
+                json={"name": "First", "slug": shared_slug},
+            )
+        assert resp_a.status_code == 201
+        created_tenant_ids.append(uuid.UUID(resp_a.json()["tenant_id"]))
+
+        # Second user attempts the same slug
+        _app2, client_b = _build_client(pool=pool, user_id=user_b_id)
+        async with client_b:
+            resp_b = await client_b.post(
+                "/api/v1/onboarding",
+                json={"name": "Second", "slug": shared_slug},
+            )
+        assert resp_b.status_code == 409
+        assert "slug" in resp_b.json()["detail"]
+    finally:
+        await _cleanup(pool, created_tenant_ids, [user_a_id, user_b_id])
+
+
+# ── Validation errors ─────────────────────────────────────────────────
+
+
+async def test_onboarding_422_invalid_slug_format(pool: asyncpg.Pool) -> None:
+    """Slug with uppercase / special characters → 422."""
     user_id, _ = await _make_auth_only_user(pool)
     try:
         _app, client = _build_client(pool=pool, user_id=user_id)
         async with client:
             response = await client.post(
-                "/api/v1/onboarding/workspace",
-                json={"name": "Whatever", "slug": "Acme_Labs"},
+                "/api/v1/onboarding",
+                json={"name": "Valid Name", "slug": "INVALID SLUG!!!"},
             )
-        assert response.status_code == 400
+        assert response.status_code == 422
     finally:
-        await _cleanup(pool, [user_id])
+        await _cleanup(pool, [], [user_id])
 
 
-async def test_taken_slug_returns_409(pool: asyncpg.Pool) -> None:
-    """Two users requesting the same slug — first wins, second 409s."""
-
-    user_a, _ = await _make_auth_only_user(pool)
-    user_b, _ = await _make_auth_only_user(pool)
-    try:
-        _app1, client1 = _build_client(pool=pool, user_id=user_a)
-        async with client1:
-            first = await client1.post(
-                "/api/v1/onboarding/workspace",
-                json={"name": "Acme Labs", "slug": "acme-labs"},
-            )
-        assert first.status_code == 201
-
-        _app2, client2 = _build_client(pool=pool, user_id=user_b)
-        async with client2:
-            second = await client2.post(
-                "/api/v1/onboarding/workspace",
-                json={"name": "Acme Labs 2", "slug": "acme-labs"},
-            )
-        assert second.status_code == 409
-        assert "slug" in second.json()["detail"]
-    finally:
-        await _cleanup(pool, [user_a, user_b])
-
-
-async def test_user_already_in_a_tenant_returns_409(pool: asyncpg.Pool) -> None:
+async def test_onboarding_422_slug_too_short(pool: asyncpg.Pool) -> None:
+    """Slug shorter than 3 chars → 422."""
     user_id, _ = await _make_auth_only_user(pool)
-    # First create succeeds; second POST hits the "already in a tenant" guard.
     try:
         _app, client = _build_client(pool=pool, user_id=user_id)
         async with client:
-            first = await client.post(
-                "/api/v1/onboarding/workspace",
-                json={"name": "Acme Labs", "slug": "acme-one"},
+            response = await client.post(
+                "/api/v1/onboarding",
+                json={"name": "Valid Name", "slug": "ab"},
             )
-            assert first.status_code == 201
-            second = await client.post(
-                "/api/v1/onboarding/workspace",
-                json={"name": "Acme Two", "slug": "acme-two"},
-            )
-        assert second.status_code == 409
-        assert "already" in second.json()["detail"]
+        assert response.status_code == 422
     finally:
-        await _cleanup(pool, [user_id])
+        await _cleanup(pool, [], [user_id])
 
 
-async def test_missing_auth_user_returns_403(pool: asyncpg.Pool) -> None:
-    """The JWT validated but the auth.users row is gone — 403, never 500."""
+async def test_onboarding_422_missing_name(pool: asyncpg.Pool) -> None:
+    """Missing required 'name' field → 422."""
+    user_id, _ = await _make_auth_only_user(pool)
+    try:
+        _app, client = _build_client(pool=pool, user_id=user_id)
+        async with client:
+            response = await client.post(
+                "/api/v1/onboarding",
+                json={"slug": "valid-slug"},
+            )
+        assert response.status_code == 422
+    finally:
+        await _cleanup(pool, [], [user_id])
 
-    ghost = uuid.uuid4()
-    _app, client = _build_client(pool=pool, user_id=ghost)
-    async with client:
-        response = await client.post(
-            "/api/v1/onboarding/workspace",
-            json={"name": "Ghost Co", "slug": "ghost"},
-        )
-    assert response.status_code == 403
+
+async def test_onboarding_422_invalid_language(pool: asyncpg.Pool) -> None:
+    """Language other than 'tr' or 'en' → 422."""
+    user_id, _ = await _make_auth_only_user(pool)
+    try:
+        _app, client = _build_client(pool=pool, user_id=user_id)
+        async with client:
+            response = await client.post(
+                "/api/v1/onboarding",
+                json={"name": "Valid", "slug": "valid-slug", "preferred_language": "fr"},
+            )
+        assert response.status_code == 422
+    finally:
+        await _cleanup(pool, [], [user_id])
+
+
+async def test_onboarding_rejects_extra_fields(pool: asyncpg.Pool) -> None:
+    """Extra fields → 422 (model has extra='forbid')."""
+    user_id, _ = await _make_auth_only_user(pool)
+    try:
+        _app, client = _build_client(pool=pool, user_id=user_id)
+        async with client:
+            response = await client.post(
+                "/api/v1/onboarding",
+                json={
+                    "name": "Valid",
+                    "slug": "valid-slug-extra",
+                    "plan": "enterprise",  # not allowed
+                },
+            )
+        assert response.status_code == 422
+    finally:
+        await _cleanup(pool, [], [user_id])

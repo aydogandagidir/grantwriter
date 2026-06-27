@@ -363,7 +363,7 @@ async def test_blocking_hunt_flips_status_to_with_issues() -> None:
 
 async def test_call_analyst_failure_terminates_with_failed() -> None:
     agents = _build_agents(call=_fail("call_analyst", "LLM down"))
-    saga, conn, publisher = _build_saga(agents=agents)
+    saga, _conn, publisher = _build_saga(agents=agents)
     result = await saga.run()
 
     assert result.status == "failed"

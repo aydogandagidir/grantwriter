@@ -1,0 +1,90 @@
+name: web-ci
+
+# Runs on every PR + every push to main that touches the frontend.
+# Three parallel jobs (typecheck, lint, test) so the slowest gates the
+# whole run, not the sum. Mirrors api-ci's shape so debugging skills
+# transfer between the two pipelines.
+#
+# Why this exists: until this workflow landed, the only frontend gate
+# was Vercel's `next build` (typecheck only). Vitest never ran in CI,
+# so a broken unit test — or a fixture drift like the next-intl
+# MISSING_MESSAGE noise that slipped through PR #26 — could land on
+# main unnoticed. This closes that gap.
+#
+# Concurrency: cancel in-progress runs of the same ref so a fast
+# follow-up commit doesn't pile on top of an obsolete pipeline.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/web-ci.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/web-ci.yml"
+
+concurrency:
+  group: web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    name: Typecheck (tsc --noEmit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `pnpm/action-setup@v4` with no `version` reads `packageManager`
+      # from the root package.json — single source of truth for the
+      # pnpm version (currently 9.15.0).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+      - name: tsc --noEmit
+        run: pnpm --filter web typecheck
+
+  lint:
+    name: Lint (ESLint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+      - name: next lint
+        run: pnpm --filter web lint
+
+  test:
+    name: Vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+      - name: vitest
+        run: pnpm --filter web test

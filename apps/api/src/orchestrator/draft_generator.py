@@ -130,7 +130,7 @@ class DraftGenerator:
 
     # ── Public entry point ────────────────────────────────────────────
 
-    async def run(self) -> DraftGeneratorResult:  # noqa: PLR0911
+    async def run(self) -> DraftGeneratorResult:
         # Guard-clause returns per saga step — flattening this into one
         # exit point would obscure the failure routing.
         started = time.perf_counter()

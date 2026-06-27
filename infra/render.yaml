@@ -1,0 +1,193 @@
+# Render Blueprint — infrastructure-as-code for the backend service.
+#
+# Replaces infra/railway.json: production deploys on RENDER, not Railway,
+# so the Railway config was stale + misleading (its start command also
+# referenced scripts/preflight-check.sh, which isn't in the Docker build
+# context apps/api/ — it would have failed anyway).
+#
+# NOT auto-applied. The current prod services were created via the Render
+# dashboard and keep using that config. This file:
+#   1. Documents the deployed setup as version-controlled IaC.
+#   2. Is ready to activate as a Render Blueprint
+#      (Dashboard → Blueprints → New Blueprint → point at this repo).
+#   3. Prevents config drift — the deployed shape now lives in git.
+#
+# ⚠ Applying this blueprint TODAY would create NEW services alongside the
+# dashboard-managed ones (Render matches blueprint services by blueprint
+# ownership, not by name) — i.e., a duplicate web service, worker, and KV.
+# Keep using the dashboard for the live services; treat this file as the
+# reference matrix when creating/editing them by hand.
+#
+# Boot validation note: there is intentionally NO startCommand override.
+# The Dockerfile CMD (uvicorn src.main:app) is authoritative, and the
+# production preflight runs INSIDE the FastAPI lifespan (src/core/
+# preflight.py) — in-process, regardless of how the host starts the
+# container. So we don't wrap the start command in the bash preflight
+# the way railway.json did.
+
+services:
+  - type: web
+    name: grantwriter-api
+    runtime: docker
+    repo: https://github.com/aydogandagidir/grantwriter
+    branch: main
+    # Dockerfile COPYs are relative to apps/api/ (COPY pyproject.toml ./,
+    # COPY src ./src, COPY .env.production.example …), so the build
+    # context MUST be apps/api, not the repo root.
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    plan: free
+    # Supabase project lives in eu-central-1 (Frankfurt); colocating the
+    # API minimises DB round-trip latency.
+    region: frankfurt
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # ── Non-secret config (safe to commit) ──────────────────────────
+      - key: APP_ENV
+        value: production
+      # Preflight stays warn-only until every REQUIRED secret below is
+      # wired. Flip to "true" in the dashboard (or here) for the strict
+      # boot gate once the secret matrix is complete — see
+      # docs/11-operations-runbook.md §6.
+      - key: PREFLIGHT_STRICT
+        value: "false"
+      - key: LOG_LEVEL
+        value: INFO
+      # Render injects the deployed commit SHA; surface it to Sentry so
+      # errors group by release.
+      - key: SENTRY_RELEASE
+        fromService:
+          type: web
+          name: grantwriter-api
+          property: commitSha
+      # ── Secrets (set in the Render dashboard; never committed) ───────
+      # Full descriptions: apps/api/.env.production.example.
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LLM_MASTER_ENCRYPTION_KEY
+        sync: false
+      # Celery broker + result backend + SSE pub/sub + rate-limit buckets +
+      # citation cache. Value = grantwriter-kv's INTERNAL connection string
+      # (redis://red-…:6379) — same value on web AND worker. In a blueprint
+      # this would be `fromService: {type: keyvalue, name: grantwriter-kv,
+      # property: connectionString}`; dashboard-managed reality = copy-paste.
+      - key: REDIS_URL
+        sync: false
+      - key: IYZICO_API_KEY
+        sync: false
+      - key: IYZICO_SECRET_KEY
+        sync: false
+      - key: IYZICO_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: LOGTAIL_TOKEN
+        sync: false
+      # CORS — the frontend origin(s) allowed to call this API.
+      - key: CORS_ORIGINS
+        sync: false
+
+  # ── Key Value (managed Redis) ─────────────────────────────────────────
+  # Four jobs in one instance: Celery broker, Celery result backend
+  # (/jobs polling reads AsyncResult state from here), SSE pub/sub
+  # (proposal:{uuid} channels), and the rate-limit/citation caches.
+  - type: keyvalue              # Render's rename of managed Redis (legacy alias: redis)
+    name: grantwriter-kv
+    plan: free                  # 25MB, ~50 conns, NO persistence — pilot-grade.
+                                # A restart wipes queue + results (jobs stuck
+                                # "queued"); upgrade before real load. See
+                                # docs/11-operations-runbook.md worker section.
+    region: frankfurt           # MUST match web + worker for the internal URL
+    maxmemoryPolicy: noeviction # broker correctness: never evict queued tasks
+    ipAllowList: []             # required field; empty list = internal-only
+
+  # ── Celery worker ─────────────────────────────────────────────────────
+  # Runs generate_draft_task (the 7-agent saga), DOCX/XLSX exports, and
+  # the scraper tasks. Same Docker image as the web service; only the
+  # command differs. Render's free instance type does NOT cover background
+  # workers, so this is the one paid piece of the topology (~$7/mo).
+  - type: worker
+    name: grantwriter-worker
+    runtime: docker
+    repo: https://github.com/aydogandagidir/grantwriter
+    branch: main
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    plan: starter
+    region: frankfurt
+    # Every main merge redeploys the worker too. Mid-saga SIGTERM +
+    # task_acks_late means a killed saga re-delivers only after Redis's
+    # visibility_timeout (default 3600s) — finish-but-late + duplicate LLM
+    # spend. Freeze merges during pilot windows.
+    autoDeploy: true
+    # Flag rationale (512MB Starter):
+    # --pool=prefork --concurrency=1 → the parent process keeps answering
+    #   `inspect().ping()` (the /health/worker probe) while the single
+    #   child runs a 5-15 min saga. `--pool=solo` would make the probe
+    #   false-negative during every generation.
+    # --max-tasks-per-child=25 → recycles leaked RSS; each task runs
+    #   asyncio.run with its own asyncpg pool.
+    # --without-gossip --without-mingle → pure overhead on a 1-node fleet.
+    dockerCommand: celery -A src.tasks.celery_app worker --loglevel=info --concurrency=1 --pool=prefork --max-tasks-per-child=25 --without-gossip --without-mingle
+    envVars:
+      # ── Non-secret config ────────────────────────────────────────────
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SENTRY_RELEASE
+        fromService:
+          type: worker
+          name: grantwriter-worker
+          property: commitSha
+      # Broker/result backend — same internal URL as the web service.
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: grantwriter-kv
+          property: connectionString
+      # ── Secrets (dashboard; never committed) ─────────────────────────
+      # The worker subset of apps/api/.env.production.example: tasks open
+      # their own asyncpg pool (DATABASE_URL), call the LLM router
+      # (ANTHROPIC/OPENAI keys + BYOK master key), and upload exports to
+      # Supabase Storage (SUPABASE_URL + SERVICE_ROLE_KEY).
+      # Deliberately NOT needed here: SUPABASE_JWT_SECRET (no inbound
+      # HTTP auth), CORS_ORIGINS (no browser traffic), IYZICO_* (billing
+      # webhooks land on the web service).
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LLM_MASTER_ENCRYPTION_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Optional — completion e-mail is sent FROM the worker at saga end;
+      # observability mirrors the web service.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: LOGTAIL_TOKEN
+        sync: false

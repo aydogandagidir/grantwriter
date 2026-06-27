@@ -15,7 +15,7 @@ help:
 dev:
 	docker compose -f infra/docker-compose.yml up -d
 	cd apps/api && poetry run uvicorn src.main:app --reload --port 8000 &
-	cd apps/api && poetry run celery -A src.worker worker --loglevel=info &
+	cd apps/api && poetry run celery -A src.tasks.celery_app worker --loglevel=info &
 	cd apps/web && pnpm dev
 
 test:

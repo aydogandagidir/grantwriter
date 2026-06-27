@@ -69,7 +69,7 @@ async def test_role_escalation_takes_effect_immediately(
     fixture_data: dict[str, uuid.UUID],
     _auth_helpers_present: bool,
 ) -> None:
-    """User A starts as 'member' (auth.is_tenant_admin = false). Update to
+    """User A starts as 'member' (public.is_tenant_admin = false). Update to
     'admin' through a service-role connection and confirm the very next
     authenticated query reflects the new role — no caching, no stale view.
     """
@@ -83,14 +83,14 @@ async def test_role_escalation_takes_effect_immediately(
     user_a = fixture_data["user_a"]
 
     async with authenticated_as(pool, user_a) as conn:
-        is_admin = await conn.fetchval("select auth.is_tenant_admin()")
+        is_admin = await conn.fetchval("select public.is_tenant_admin()")
     assert is_admin is False, "user A should start as plain member"
 
     async with as_role(pool, "service_role") as conn:
         await conn.execute("update public.users set role = 'admin' where id = $1", user_a)
 
     async with authenticated_as(pool, user_a) as conn:
-        is_admin_now = await conn.fetchval("select auth.is_tenant_admin()")
+        is_admin_now = await conn.fetchval("select public.is_tenant_admin()")
     assert is_admin_now is True, "role bump must be visible on the next call"
 
 
@@ -102,7 +102,7 @@ async def test_soft_deleted_user_loses_all_visibility(
     fixture_data: dict[str, uuid.UUID],
     _auth_helpers_present: bool,
 ) -> None:
-    """Setting ``public.users.deleted_at`` should make auth.tenant_id() return
+    """Setting ``public.users.deleted_at`` should make public.tenant_id() return
     NULL for that user, and every tenant-scoped policy compares against
     that NULL — so the user sees zero rows everywhere.
     """
@@ -120,7 +120,7 @@ async def test_soft_deleted_user_loses_all_visibility(
 
     try:
         async with authenticated_as(pool, user_a) as conn:
-            tenant_id = await conn.fetchval("select auth.tenant_id()")
+            tenant_id = await conn.fetchval("select public.tenant_id()")
             visible_proposals = await conn.fetchval("select count(*) from proposals")
             visible_tenants = await conn.fetchval("select count(*) from tenants")
         assert tenant_id is None, "deleted user must resolve to NULL tenant"

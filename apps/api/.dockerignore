@@ -15,3 +15,10 @@ Dockerfile
 .env
 .env.*
 !.env.example
+# Production env TEMPLATE (no secrets — only placeholders) needs to
+# enter the runtime image: src/core/preflight.py reads it at lifespan
+# start to validate which env vars the operator has wired. Without
+# this exception the `.env.*` rule above strips the file from the
+# build context and Dockerfile COPY fails with "not found" — exactly
+# the crash that took the Render deploy down after PR #33.
+!.env.production.example

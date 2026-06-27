@@ -104,4 +104,58 @@ describe('apiClient', () => {
       detail: 'Internal Server Error',
     });
   });
+
+  it('formats a Pydantic 422 validation array into a human-readable detail', async () => {
+    // The "[object Object]" disaster: backend returns
+    // {detail: [{loc, msg, type}, ...]}; the old parser ran String(array)
+    // which collapsed every entry to "[object Object]" and broke the UI.
+    mockFetchResponse(422, {
+      detail: [
+        {
+          type: 'string_too_short',
+          loc: ['body', 'name'],
+          msg: 'String should have at least 2 characters',
+          input: 'x',
+        },
+        {
+          type: 'value_error',
+          loc: ['body', 'slug'],
+          msg: 'Slug must be 3-50 characters, lowercase...',
+        },
+      ],
+    });
+
+    try {
+      await apiClient('/api/v1/onboarding', { method: 'POST', body: {} });
+      throw new Error('expected apiClient to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      const apiErr = err as ApiError;
+      expect(apiErr.status).toBe(422);
+      expect(apiErr.detail).toBe(
+        'name: String should have at least 2 characters; ' +
+          'slug: Slug must be 3-50 characters, lowercase...',
+      );
+      expect(apiErr.validationErrors).toHaveLength(2);
+      const firstError = apiErr.validationErrors?.[0];
+      expect(firstError).toBeDefined();
+      expect(firstError!.loc).toEqual(['body', 'name']);
+    }
+  });
+
+  it('falls back to JSON-stringified detail for unknown shapes (not "[object Object]")', async () => {
+    // Backends sometimes return weird detail objects (e.g. middleware
+    // errors). Stringify rather than the default String() that yields
+    // "[object Object]".
+    mockFetchResponse(500, { detail: { error: 'something_weird', code: 42 } });
+
+    try {
+      await apiClient('/api/v1/oops');
+      throw new Error('expected apiClient to throw');
+    } catch (err) {
+      const apiErr = err as ApiError;
+      expect(apiErr.detail).toBe('{"error":"something_weird","code":42}');
+      expect(apiErr.validationErrors).toBeUndefined();
+    }
+  });
 });

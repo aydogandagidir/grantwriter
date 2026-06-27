@@ -9,6 +9,8 @@ const intlMiddleware = createIntlMiddleware(routing);
 const PUBLIC_PATH_PREFIXES = [
   '/login',
   '/signup',
+  '/home',       // marketing homepage
+  '/pricing',    // marketing pricing
   '/invitations', // public invite preview/accept
 ];
 
@@ -29,6 +31,18 @@ function isPublic(pathname: string): boolean {
  *    preserving the locale prefix.
  */
 export async function middleware(request: NextRequest) {
+  // Supabase auth callback (email confirmation, OAuth, magic link) must
+  // bypass BOTH the next-intl locale routing AND the auth-gate redirect:
+  // - intl would try to treat `auth` as a locale / add a `/tr` prefix and
+  //   mangle the `?code=` callback URL.
+  // - the auth gate would bounce the still-session-less request to /login
+  //   (the session only exists AFTER the route handler exchanges the code).
+  // We just refresh cookies and let app/auth/callback/route.ts run.
+  if (request.nextUrl.pathname.startsWith('/auth/')) {
+    const { response } = await updateSession(request);
+    return response;
+  }
+
   const { response: sessionResponse, user } = await updateSession(request);
 
   const intlResponse = intlMiddleware(request);

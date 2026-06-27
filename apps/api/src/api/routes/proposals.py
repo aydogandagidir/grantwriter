@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import asyncpg
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 from sse_starlette.sse import EventSourceResponse
 
@@ -40,6 +41,7 @@ from src.compliance.distinctiveness import (
     ProposalNotFoundError,
     ProposalNotReadyError,
 )
+from src.core.audit import write_audit_event
 from src.core.auth import CurrentUserId
 from src.core.config import SettingsDep
 from src.core.db import get_db
@@ -111,6 +113,122 @@ class ProdisFieldsResponse(BaseModel):
 
     programme_id: str
     fields: list[ProdisField]
+
+
+# ── CRUD response/request models (Sprint 4 MVP flow) ───────────────────
+
+
+ProposalStatus = Literal[
+    "draft",
+    "brief_complete",
+    "generating",
+    "draft_complete",
+    "in_review",
+    "validated",
+    "exported",
+    "submitted",
+    "funded",
+    "rejected",
+    "archived",
+]
+
+
+class ProposalCreate(BaseModel):
+    """Body for ``POST /api/v1/proposals``.
+
+    Minimum viable: caller picks a programme + language; everything else
+    (call link, brief content, draft body) can be filled in later via
+    ``PATCH``. Sprint 4 pilot flow uses this to seed an empty proposal
+    that the user then runs through the brief form."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    programme_id: str
+    language: Literal["tr", "en"]
+    title: str | None = None
+    acronym: str | None = None
+    call_id: UUID | None = None
+    brief: dict[str, Any] | None = None
+
+
+class ProposalUpdate(BaseModel):
+    """Body for ``PATCH /api/v1/proposals/{id}``.
+
+    Every field optional — the route applies only the supplied keys so
+    a partial save (e.g. only ``brief``) doesn't clobber an in-flight
+    draft. Status transitions are intentionally constrained: callers
+    can move forward (draft → brief_complete) or to ``archived`` but
+    saga-managed statuses (``generating`` / ``draft_complete``) must
+    not be set by the HTTP caller."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = None
+    acronym: str | None = None
+    call_id: UUID | None = None
+    brief: dict[str, Any] | None = None
+    draft: dict[str, Any] | None = None
+    status: Literal["draft", "brief_complete", "in_review", "archived"] | None = None
+
+
+class ProposalSummary(BaseModel):
+    """Row in ``GET /api/v1/proposals`` list response.
+
+    Heavy fields (``brief``, ``draft``, ``compliance_report``) are
+    omitted so the list can render dozens of rows without bloating the
+    payload. The FE calls ``GET /proposals/{id}`` for the detail view."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    programme_id: str
+    language: str
+    title: str | None
+    acronym: str | None
+    status: ProposalStatus
+    call_id: UUID | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime | None
+    word_count: int
+    llm_cost_usd: float
+
+
+class ProposalListResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    proposals: list[ProposalSummary]
+
+
+class ProposalDetail(BaseModel):
+    """Full row of ``GET /api/v1/proposals/{id}``.
+
+    Carries every column the editor + validation surface needs. Heavy
+    jsonb fields (``brief``, ``draft``, ``compliance_report``) are
+    typed loose because their shape is programme-specific; the FE knows
+    the schema via :class:`src.programs.base.BaseProgramModule`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    tenant_id: UUID
+    programme_id: str
+    language: str
+    title: str | None
+    acronym: str | None
+    status: ProposalStatus
+    call_id: UUID | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime | None
+    brief: dict[str, Any]
+    draft: dict[str, Any]
+    compliance_report: dict[str, Any]
+    distinctiveness_score: float | None
+    ai_disclosure_text: str | None
+    word_count: int
+    page_count: int
+    llm_cost_usd: float
 
 
 # ── Existing routes (preserved) ────────────────────────────────────────
@@ -495,6 +613,219 @@ def _attach_hunt_blocker(
     )
 
 
+# ── Inline editor AI surfaces (Faz 4) ──────────────────────────────────
+
+
+InlineCommand = Literal[
+    "rewrite",
+    "shorter",
+    "longer",
+    "translate_en",
+    "translate_tr",
+]
+
+_INLINE_SYSTEM_PROMPTS: dict[InlineCommand, str] = {
+    "rewrite": (
+        "You are a grant-proposal editor. Rewrite the user's selected text so it "
+        "reads more clearly and persuasively while preserving every factual claim, "
+        "citation marker (e.g. [1], [Smith 2024]), and numeric figure. Match the "
+        "section's existing register (academic for excellence/impact, plan-style "
+        "for implementation). Return ONLY the replacement text — no explanation, "
+        "no quotes, no markdown fences."
+    ),
+    "shorter": (
+        "You are a grant-proposal editor. Shorten the user's selected text by "
+        "30–50% while keeping every factual claim, citation marker, and numeric "
+        "figure intact. Drop hedges and redundancies first. Do not invent new "
+        "content. Return ONLY the replacement text — no explanation."
+    ),
+    "longer": (
+        "You are a grant-proposal editor. Expand the user's selected text by "
+        "roughly 50–80%, adding concrete detail, mechanism, or substantive "
+        "justification consistent with the surrounding context. Do NOT invent "
+        "facts, citations, or numbers — say 'TBD' if a detail isn't supplied. "
+        "Return ONLY the replacement text."
+    ),
+    "translate_en": (
+        "You are a bilingual TR↔EN grant-proposal translator. Translate the "
+        "user's selected text into natural, register-appropriate English. "
+        "Preserve every citation marker, numeric figure, and proper noun "
+        "verbatim. Return ONLY the translation — no explanation, no quotes."
+    ),
+    "translate_tr": (
+        "You are a bilingual TR↔EN grant-proposal translator. Translate the "
+        "user's selected text into natural, register-appropriate Turkish. "
+        "Preserve every citation marker, numeric figure, and proper noun "
+        "verbatim. Return ONLY the translation — no explanation, no quotes."
+    ),
+}
+
+
+class InlineEditRequest(BaseModel):
+    """Body for ``POST /proposals/{id}/inline-edit``.
+
+    The editor's slash-command extension sends the selected text plus
+    a small window of surrounding context (≤500 chars each side). The
+    LLM uses the context as register/tone signal but only returns the
+    rewritten selection — the editor swaps just the selection range,
+    leaving the rest of the document untouched.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    command: InlineCommand
+    section: Literal["excellence", "impact", "implementation", "other"] = "other"
+    selection_text: str
+    """The text the user highlighted. Required, non-empty."""
+    context_before: str = ""
+    """Up to 500 chars of preceding text; gives the model register cues."""
+    context_after: str = ""
+    """Up to 500 chars of following text."""
+
+    def normalised_selection(self) -> str:
+        return self.selection_text.strip()
+
+
+class InlineEditResponse(BaseModel):
+    """Replacement text + provenance metadata for the editor."""
+
+    model_config = ConfigDict(frozen=True)
+
+    replacement_text: str
+    """The new text. The editor replaces the original selection with this."""
+    command: InlineCommand
+    """Echo of the request so the FE can log it alongside the provenance."""
+    model: str
+    """Which model produced the rewrite — surfaced in the AI disclosure."""
+    cost_usd: float
+    """USD cost of this single call (input + output tokens)."""
+    tokens_used: int
+    """Total tokens billed (input + output + cached)."""
+
+
+_INLINE_MAX_SELECTION = 4000
+_INLINE_MAX_CONTEXT = 500
+
+
+@router.post(
+    "/{proposal_id}/inline-edit",
+    response_model=InlineEditResponse,
+    summary="Apply an AI slash-command rewrite to a selection in the editor",
+)
+async def inline_edit_proposal(
+    proposal_id: UUID,
+    body: InlineEditRequest,
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    router_inst: Annotated[LLMRouter, Depends(get_llm_router)],
+    _rate_check: Annotated[RateLimitDecision, Depends(rate_limit(LLM_CALL))],
+) -> InlineEditResponse:
+    """Run one of the editor's slash commands against a text selection.
+
+    Behaviour:
+      - 400 if ``selection_text`` is empty or exceeds 4 000 chars (we
+        don't want the editor to ship a whole section as one selection;
+        that path goes through the section re-generate flow instead).
+      - 404 if the proposal doesn't exist.
+      - 429 on rate-limit (10 LLM calls / 60 s — same budget as
+        ``validate``).
+
+    Cost accounting flows through :class:`LLMRouter`, so the call hits
+    ``tenant_usage_log`` like every other LLM surface. The endpoint does
+    NOT write the replacement back to ``proposals.draft`` — the editor
+    is the source of truth on the FE; persistence happens on
+    explicit save.
+    """
+
+    selection = body.normalised_selection()
+    if not selection:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="selection_text must be non-empty"
+        )
+    if len(selection) > _INLINE_MAX_SELECTION:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"selection_text too long ({len(selection)} chars > "
+                f"{_INLINE_MAX_SELECTION}); re-generate the section instead"
+            ),
+        )
+
+    row = await conn.fetchrow(
+        "select tenant_id, language, programme_id from proposals where id = $1",
+        proposal_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"proposal {proposal_id} not found"
+        )
+
+    from src.llm.base import LLMMessage, LLMRequest
+
+    # Clamp context so we don't accidentally inflate a slash command
+    # into a section-rewrite prompt; the slash command's job is fast,
+    # local edits.
+    ctx_before = body.context_before[-_INLINE_MAX_CONTEXT:] if body.context_before else ""
+    ctx_after = body.context_after[:_INLINE_MAX_CONTEXT] if body.context_after else ""
+
+    system_prompt = _INLINE_SYSTEM_PROMPTS[body.command]
+    section_label = body.section
+    programme = str(row["programme_id"])
+    language = str(row["language"])
+
+    user_content_parts: list[str] = [
+        f"<section>{section_label}</section>",
+        f"<programme>{programme}</programme>",
+        f"<language>{language}</language>",
+    ]
+    if ctx_before:
+        user_content_parts.append(f"<context_before>\n{ctx_before}\n</context_before>")
+    user_content_parts.append(f"<selection>\n{selection}\n</selection>")
+    if ctx_after:
+        user_content_parts.append(f"<context_after>\n{ctx_after}\n</context_after>")
+    user_content = "\n\n".join(user_content_parts)
+
+    llm_request = LLMRequest(
+        task="inline_rewrite",
+        tenant_id=row["tenant_id"],
+        proposal_id=proposal_id,
+        user_id=user_id,
+        system=system_prompt,
+        messages=[LLMMessage(role="user", content=user_content)],
+        temperature=0.3,
+        max_tokens=1024,
+    )
+    llm_response = await router_inst.complete(llm_request)
+    replacement = llm_response.text.strip()
+    # Defensive trim: some models prefix the reply with "Here's the
+    # rewritten version:" despite the system prompt. Strip a single
+    # leading line of meta if it ends with a colon.
+    if replacement and "\n" in replacement:
+        first_line, rest = replacement.split("\n", 1)
+        if first_line.rstrip().endswith(":") and len(first_line) < 80:
+            replacement = rest.lstrip()
+
+    logger.info(
+        "inline_edit_completed",
+        extra={
+            "proposal_id": str(proposal_id),
+            "user_id": str(user_id),
+            "command": body.command,
+            "selection_chars": len(selection),
+            "replacement_chars": len(replacement),
+            "model": llm_response.model,
+            "cost_usd": llm_response.cost_usd,
+        },
+    )
+    return InlineEditResponse(
+        replacement_text=replacement,
+        command=body.command,
+        model=llm_response.model,
+        cost_usd=llm_response.cost_usd,
+        tokens_used=llm_response.usage.total,
+    )
+
+
 @router.get(
     "/{proposal_id}/ai-disclosure",
     response_model=AIDisclosureResponse,
@@ -685,16 +1016,443 @@ async def _get_redis(request: Request) -> Any:
     from src.core.config import get_settings
 
     settings = get_settings()
-    if settings.redis_url is None:
+    # REDIS_URL can arrive as None *or* an empty string — CI's
+    # "Redis-unset stream guard" job sets ``REDIS_URL=`` explicitly to
+    # exercise this path. An empty string is not a valid Redis URL, so
+    # treat it the same as None: caller maps the None to a clean 503
+    # instead of letting redis-py raise a ValueError on ``from_url("")``.
+    redis_url = (
+        settings.redis_url.get_secret_value()
+        if settings.redis_url is not None
+        else None
+    )
+    if not redis_url:
         return None
 
     import redis.asyncio as redis_asyncio
 
     client = redis_asyncio.from_url(  # type: ignore[no-untyped-call]
-        settings.redis_url.get_secret_value()
+        redis_url
     )
     request.app.state.redis_client = client
     return client
+
+
+_PROPOSAL_LIST_LIMIT_DEFAULT = 50
+_PROPOSAL_LIST_LIMIT_MAX = 200
+
+
+# ── Proposals CRUD (Sprint 4 MVP flow) ─────────────────────────────────
+
+
+@router.post(
+    "",
+    response_model=ProposalDetail,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new proposal (Sprint 4 MVP)",
+)
+async def create_proposal(
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    body: ProposalCreate,
+) -> ProposalDetail:
+    """Seed an empty proposal for the caller's tenant.
+
+    The status starts at ``draft``; the FE then drives the brief form
+    + generation saga. Programme validation: the ``programme_id`` MUST
+    match a row in :class:`programmes` (DB FK enforces this — we
+    surface a 422 instead of asyncpg's raw error).
+
+    - 201: created; returns the full :class:`ProposalDetail` so the FE
+      can route straight to the detail page without a follow-up GET.
+    - 404: caller has no active tenant (soft-deleted users).
+    - 422: programme_id not found or call_id mismatch.
+    """
+
+    tenant_id, _ = await resolve_tenant_and_role(conn, user_id=user_id)
+
+    try:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                insert into proposals (
+                  tenant_id, created_by, call_id, programme_id,
+                  title, acronym, language, brief, status
+                ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'draft')
+                returning *
+                """,
+                tenant_id,
+                user_id,
+                body.call_id,
+                body.programme_id,
+                body.title,
+                body.acronym,
+                body.language,
+                json.dumps(body.brief or {}),
+            )
+            assert row is not None
+            await write_audit_event(
+                conn,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action="proposal.created",
+                resource_type="proposal",
+                resource_id=UUID(str(row["id"])),
+                diff={
+                    "programme": body.programme_id,
+                    "language": body.language,
+                },
+            )
+    except asyncpg.ForeignKeyViolationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"programme_id={body.programme_id} or call_id={body.call_id} "
+                "does not exist"
+            ),
+        ) from exc
+
+    logger.info(
+        "proposal_created",
+        extra={
+            "proposal_id": str(row["id"]),
+            "tenant_id": str(tenant_id),
+            "user_id": str(user_id),
+            "programme_id": body.programme_id,
+        },
+    )
+    return _row_to_proposal_detail(row)
+
+
+@router.get(
+    "",
+    response_model=ProposalListResponse,
+    summary="List proposals in the caller's tenant",
+)
+async def list_proposals(
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    limit: int = _PROPOSAL_LIST_LIMIT_DEFAULT,
+    status_filter: ProposalStatus | None = None,
+) -> ProposalListResponse:
+    """Return the tenant's proposals, newest first.
+
+    The summary view omits heavy jsonb columns (``brief``, ``draft``,
+    ``compliance_report``) so a dashboard with 50+ rows stays cheap.
+    The full detail comes from :func:`get_proposal` when the user
+    clicks into a row.
+
+    - 200: list (possibly empty).
+    - 404: caller has no active tenant.
+    """
+
+    tenant_id, _ = await resolve_tenant_and_role(conn, user_id=user_id)
+    capped_limit = max(1, min(limit, _PROPOSAL_LIST_LIMIT_MAX))
+
+    if status_filter is not None:
+        rows = await conn.fetch(
+            """
+            select id, programme_id, language, title, acronym, status,
+                   call_id, created_by, created_at, updated_at,
+                   word_count, llm_cost_usd
+              from proposals
+             where tenant_id = $1
+               and status = $2
+             order by created_at desc
+             limit $3
+            """,
+            tenant_id,
+            status_filter,
+            capped_limit,
+        )
+    else:
+        rows = await conn.fetch(
+            """
+            select id, programme_id, language, title, acronym, status,
+                   call_id, created_by, created_at, updated_at,
+                   word_count, llm_cost_usd
+              from proposals
+             where tenant_id = $1
+             order by created_at desc
+             limit $2
+            """,
+            tenant_id,
+            capped_limit,
+        )
+
+    return ProposalListResponse(
+        proposals=[_row_to_proposal_summary(r) for r in rows]
+    )
+
+
+@router.get(
+    "/{proposal_id}",
+    response_model=ProposalDetail,
+    summary="Read a single proposal in full",
+)
+async def get_proposal(
+    proposal_id: UUID,
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+) -> ProposalDetail:
+    """Fetch the full row (brief + draft + compliance + AI disclosure).
+
+    Cross-tenant guard: if the proposal exists in another tenant we
+    return 404 (not 403) — same existence-obscuring policy used by
+    versions / comments.
+
+    - 200: detail.
+    - 404: proposal not found OR belongs to a different tenant.
+    """
+
+    tenant_id, _ = await resolve_tenant_and_role(conn, user_id=user_id)
+    row = await conn.fetchrow(
+        "select * from proposals where id = $1 and tenant_id = $2",
+        proposal_id,
+        tenant_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"proposal {proposal_id} not found"
+        )
+    return _row_to_proposal_detail(row)
+
+
+@router.patch(
+    "/{proposal_id}",
+    response_model=ProposalDetail,
+    summary="Partial-update a proposal (title / brief / draft / status)",
+)
+async def update_proposal(
+    proposal_id: UUID,
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+    body: ProposalUpdate,
+) -> ProposalDetail:
+    """Apply only the supplied fields to the proposal row.
+
+    Status transitions are deliberately narrow: the HTTP caller can
+    push ``draft → brief_complete``, mark a draft for review
+    (``in_review``), or archive (``archived``). Saga-managed
+    statuses (``generating`` / ``draft_complete`` / ``validated``)
+    must NOT be set by the HTTP layer — those flip server-side as the
+    pipeline progresses.
+
+    - 200: updated; returns the fresh :class:`ProposalDetail`.
+    - 400: no fields supplied (avoid no-op writes).
+    - 404: proposal not found or wrong tenant.
+    - 422: ``call_id`` references a non-existent row.
+    """
+
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="patch body must contain at least one field",
+        )
+
+    tenant_id, _ = await resolve_tenant_and_role(conn, user_id=user_id)
+
+    # Cross-tenant guard — 404 if it isn't ours.
+    owner = await conn.fetchval(
+        "select tenant_id from proposals where id = $1",
+        proposal_id,
+    )
+    if owner is None or UUID(str(owner)) != tenant_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"proposal {proposal_id} not found"
+        )
+
+    # Build the SET clause dynamically — keep it explicit so a future
+    # field add can't slip past validation. (asyncpg has no native
+    # named-parameter expansion; this is the standard pattern.)
+    set_clauses: list[str] = ["updated_at = now()"]
+    args: list[Any] = []
+    idx = 1
+    for column, value in (
+        ("title", updates.get("title", _UNSET)),
+        ("acronym", updates.get("acronym", _UNSET)),
+        ("call_id", updates.get("call_id", _UNSET)),
+        ("status", updates.get("status", _UNSET)),
+    ):
+        if value is _UNSET:
+            continue
+        set_clauses.append(f"{column} = ${idx}")
+        args.append(value)
+        idx += 1
+    if "brief" in updates:
+        set_clauses.append(f"brief = ${idx}::jsonb")
+        args.append(json.dumps(updates["brief"]))
+        idx += 1
+    if "draft" in updates:
+        set_clauses.append(f"draft = ${idx}::jsonb")
+        args.append(json.dumps(updates["draft"]))
+        idx += 1
+
+    args.extend([proposal_id, tenant_id])
+    sql = (
+        f"update proposals set {', '.join(set_clauses)} "
+        f"where id = ${idx} and tenant_id = ${idx + 1} returning *"
+    )
+
+    try:
+        async with conn.transaction():
+            row = await conn.fetchrow(sql, *args)
+            if row is None:
+                # Lost the race — proposal disappeared between guard
+                # and update.
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND,
+                    detail=f"proposal {proposal_id} not found",
+                )
+            audit_diff: dict[str, Any] = dict.fromkeys(updates, "set")
+            if "status" in updates:
+                audit_diff["new_status"] = updates["status"]
+            await write_audit_event(
+                conn,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action="proposal.updated",
+                resource_type="proposal",
+                resource_id=proposal_id,
+                diff=audit_diff,
+            )
+    except asyncpg.ForeignKeyViolationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"call_id={updates.get('call_id')} does not exist",
+        ) from exc
+
+    logger.info(
+        "proposal_updated",
+        extra={
+            "proposal_id": str(proposal_id),
+            "tenant_id": str(tenant_id),
+            "user_id": str(user_id),
+            "fields": sorted(updates.keys()),
+        },
+    )
+    return _row_to_proposal_detail(row)
+
+
+@router.delete(
+    "/{proposal_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a proposal (admin or author only)",
+)
+async def delete_proposal(
+    proposal_id: UUID,
+    user_id: CurrentUserId,
+    conn: Annotated[asyncpg.Connection, Depends(get_db)],
+) -> Response:
+    """Hard-delete the proposal row + cascade children.
+
+    Two callers may delete: the proposal's ``created_by`` author OR an
+    owner/admin on the tenant. Cascade in the schema removes
+    citations + provenance + versions + comments + audit rows that
+    reference the proposal.
+
+    - 204: deleted (idempotent — also returns 204 if it was already gone).
+    - 403: caller is neither author nor admin.
+    - 404: proposal not found in caller's tenant.
+    """
+
+    tenant_id, role = await resolve_tenant_and_role(conn, user_id=user_id)
+    row = await conn.fetchrow(
+        "select created_by from proposals where id = $1 and tenant_id = $2",
+        proposal_id,
+        tenant_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"proposal {proposal_id} not found"
+        )
+
+    is_author = row["created_by"] is not None and UUID(str(row["created_by"])) == user_id
+    is_admin = role in {"owner", "admin"}
+    if not (is_author or is_admin):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="only the proposal author or a tenant owner/admin may delete this",
+        )
+
+    async with conn.transaction():
+        await conn.execute(
+            "delete from proposals where id = $1 and tenant_id = $2",
+            proposal_id,
+            tenant_id,
+        )
+        await write_audit_event(
+            conn,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action="proposal.deleted",
+            resource_type="proposal",
+            resource_id=proposal_id,
+            diff={"by_role": role},
+        )
+
+    logger.info(
+        "proposal_deleted",
+        extra={
+            "proposal_id": str(proposal_id),
+            "tenant_id": str(tenant_id),
+            "user_id": str(user_id),
+            "by_role": role,
+        },
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# Sentinel for ``ProposalUpdate.model_dump(exclude_unset=True)`` — we
+# also need to distinguish "field omitted" from "field set to None"
+# when the caller wants to CLEAR ``title`` / ``acronym``. None as a
+# Pydantic default means the field is updatable; a separate sentinel
+# only matters inside the dynamic SQL builder above.
+_UNSET = object()
+
+
+def _row_to_proposal_summary(row: asyncpg.Record) -> ProposalSummary:
+    return ProposalSummary(
+        id=UUID(str(row["id"])),
+        programme_id=str(row["programme_id"]),
+        language=str(row["language"]),
+        title=row["title"],
+        acronym=row["acronym"],
+        status=str(row["status"]),  # type: ignore[arg-type]
+        call_id=UUID(str(row["call_id"])) if row["call_id"] else None,
+        created_by=UUID(str(row["created_by"])) if row["created_by"] else None,
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        word_count=int(row["word_count"] or 0),
+        llm_cost_usd=float(row["llm_cost_usd"] or 0),
+    )
+
+
+def _row_to_proposal_detail(row: asyncpg.Record) -> ProposalDetail:
+    return ProposalDetail(
+        id=UUID(str(row["id"])),
+        tenant_id=UUID(str(row["tenant_id"])),
+        programme_id=str(row["programme_id"]),
+        language=str(row["language"]),
+        title=row["title"],
+        acronym=row["acronym"],
+        status=str(row["status"]),  # type: ignore[arg-type]
+        call_id=UUID(str(row["call_id"])) if row["call_id"] else None,
+        created_by=UUID(str(row["created_by"])) if row["created_by"] else None,
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        brief=_loads(row["brief"]),
+        draft=_loads(row["draft"]),
+        compliance_report=_loads(row["compliance_report"]),
+        distinctiveness_score=float(row["distinctiveness_score"])
+        if row["distinctiveness_score"] is not None
+        else None,
+        ai_disclosure_text=row["ai_disclosure_text"],
+        word_count=int(row["word_count"] or 0),
+        page_count=int(row["page_count"] or 0),
+        llm_cost_usd=float(row["llm_cost_usd"] or 0),
+    )
 
 
 def _loads(value: Any) -> dict[str, Any]:
@@ -713,94 +1471,16 @@ def _loads(value: Any) -> dict[str, Any]:
     return {}
 
 
-class ProposalDraft(BaseModel):
-    """The three writer sections persisted on ``proposals.draft``.
-
-    Empty string when the saga hasn't run for that section yet —
-    saves the FE from null-checks. The fields match the keys the
-    saga's writers emit (see ``orchestrator/draft_generator.py``).
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    excellence_md: str = ""
-    impact_md: str = ""
-    implementation_md: str = ""
-
-
-class ProposalRead(BaseModel):
-    """``GET /proposals/{id}`` response.
-
-    Minimal slice: editor-shell needs id + title + status to render
-    the page header, and ``draft`` so the editor can pre-fill with
-    the saga's markdown (provenance marks land via the items endpoint
-    in :file:`provenance.py`).
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    id: UUID
-    title: str | None
-    status: str
-    language: str
-    programme_id: str
-    draft: ProposalDraft
-
-
-@router.get(
-    "/{proposal_id}",
-    response_model=ProposalRead,
-    summary="Read a single proposal (header + per-section draft markdown)",
-)
-async def get_proposal(
-    proposal_id: UUID,
-    user_id: CurrentUserId,
-    conn: Annotated[asyncpg.Connection, Depends(get_db)],
-) -> ProposalRead:
-    """Return the editor-shell's payload.
-
-    Status codes:
-    - 200: row in caller's tenant.
-    - 404: missing OR cross-tenant (no distinction — same as the
-      provenance routes, prevents enumeration).
-    """
-
-    tenant_id, _role = await resolve_tenant_and_role(conn, user_id=user_id)
-    row = await conn.fetchrow(
-        """
-        select id, title, status, language, programme_id, draft
-          from proposals
-         where id = $1 and tenant_id = $2
-        """,
-        proposal_id,
-        tenant_id,
-    )
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="proposal not found",
-        )
-
-    draft = _loads(row["draft"])
-    return ProposalRead(
-        id=UUID(str(row["id"])),
-        title=(str(row["title"]) if row["title"] else None),
-        status=str(row["status"]),
-        language=str(row["language"]),
-        programme_id=str(row["programme_id"]),
-        draft=ProposalDraft(
-            excellence_md=str(draft.get("excellence_md") or ""),
-            impact_md=str(draft.get("impact_md") or ""),
-            implementation_md=str(draft.get("implementation_md") or ""),
-        ),
-    )
-
-
 __all__ = [
     "AIDisclosureResponse",
     "ExportEnqueued",
     "GenerateEnqueued",
-    "ProposalDraft",
-    "ProposalRead",
+    "ProposalCreate",
+    "ProposalDetail",
+    "ProposalListResponse",
+    "ProposalStatus",
+    "ProposalSummary",
+    "ProposalUpdate",
+    "ValidationReport",
     "router",
 ]

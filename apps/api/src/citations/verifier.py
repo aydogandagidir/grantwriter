@@ -435,7 +435,6 @@ def _crossref_issued_year(item: dict[str, Any]) -> int | None:
 
 __all__ = [
     "CROSSREF_URL",
-    "CitationVerifier",
     "DEFAULT_MAX_CONCURRENCY",
     "DOI_BASE_URL",
     "OPENALEX_URL",
@@ -443,4 +442,5 @@ __all__ = [
     "POLITE_POOL_MAILTO",
     "USER_AGENT",
     "VERIFIED_THRESHOLD",
+    "CitationVerifier",
 ]

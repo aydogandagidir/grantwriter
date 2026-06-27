@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# Sprint 4 Day 16 — production preflight env validator.
+# Production preflight env validator (CI / pre-push / manual use).
 #
-# Runs as the first step of Railway's start command. Reads
-# apps/api/.env.production.example, walks every variable that appears
-# under the "# ── REQUIRED ──" section, and asserts the matching
-# environment variable is set + non-empty in the current process.
+# NOTE: the AUTHORITATIVE production preflight is src/core/preflight.py,
+# which runs inside the FastAPI lifespan on every boot regardless of host
+# config. This bash script is the ops-side mirror — handy in CI, a
+# pre-push hook, or a manual "is my env sane?" check — and is kept in
+# PARITY with the Python version (same three checks below).
 #
-# Exit code 0 → all required vars present, hand off to uvicorn.
-# Exit code 1 → at least one required var missing, prints the list to
-# stderr and aborts. Railway sees the non-zero exit and rolls back to
-# the previous deploy, so a misconfigured deploy can't take down prod.
+# Reads apps/api/.env.production.example, walks every variable under the
+# "# ── REQUIRED ──" section, and validates the matching env var with
+# three layered checks (mirrors src/core/preflight.py::check_env):
+#   1. set + non-empty
+#   2. no `<placeholder>` substring
+#   3. DATABASE_URL host not bracketed unless a real IPv6 literal
+#
+# Exit code 0 → all required vars OK.
+# Exit code 1 → ≥1 problem; prints the actionable list to stderr. A host
+# that wires this into its start command sees the non-zero exit and can
+# refuse the deploy.
 #
 # Parser contract (also enforced by apps/api/tests/test_preflight.py):
 # - Lines starting with `#` or blank lines are skipped EXCEPT the
@@ -66,26 +74,53 @@ if (( ${#required_keys[@]} == 0 )); then
   exit 2
 fi
 
-# Check each required key is set in the environment.
-missing=()
+# Validate each required key. Three layered checks per key, mirroring
+# the Python preflight in src/core/preflight.py (kept in parity so CI /
+# pre-push catches the same problems the in-process lifespan check does):
+#   1. set + non-empty
+#   2. no `<placeholder>` substring (e.g. an unsubstituted <ref>)
+#   3. DATABASE_URL host not wrapped in [...] unless it's an IPv6 literal
+# First failing check for a key short-circuits the rest for that key.
+placeholder_re='<[^>]+>'
+bracket_re='@\[([^]]+)\]'
+problems=()
 for key in "${required_keys[@]}"; do
-  # Use `-z "${VAR:-}"` to treat unset AND empty-string the same way.
+  # `${VAR:-}` treats unset AND empty-string the same way.
   value="${!key:-}"
+
   if [[ -z "$value" ]]; then
-    missing+=("$key")
+    problems+=("$key: required but not set")
+    continue
+  fi
+
+  if [[ "$value" =~ $placeholder_re ]]; then
+    problems+=("$key: contains a placeholder ${BASH_REMATCH[0]} — substitute the real value")
+    continue
+  fi
+
+  if [[ "$key" == "DATABASE_URL" && "$value" =~ $bracket_re ]]; then
+    host="${BASH_REMATCH[1]}"
+    # IPv6 literals contain ':' and legally require brackets; a bracketed
+    # hostname (no ':') is the copy-paste artifact that crashes Python's
+    # urlsplit. This ':' heuristic is the bash-friendly stand-in for the
+    # Python side's exact ipaddress check.
+    if [[ "$host" != *:* ]]; then
+      problems+=("DATABASE_URL: host wrapped in [...] but '$host' is not an IPv6 literal — remove the brackets")
+      continue
+    fi
   fi
 done
 
-if (( ${#missing[@]} > 0 )); then
-  echo "preflight: missing required production env vars (${#missing[@]} of ${#required_keys[@]}):" >&2
-  for key in "${missing[@]}"; do
-    echo "  - $key" >&2
+if (( ${#problems[@]} > 0 )); then
+  echo "preflight: ${#problems[@]} env problem(s) of ${#required_keys[@]} required vars:" >&2
+  for p in "${problems[@]}"; do
+    echo "  - $p" >&2
   done
   echo "" >&2
-  echo "preflight: set these in the Railway dashboard (or the equivalent host) and redeploy." >&2
+  echo "preflight: fix these in your host's dashboard and redeploy." >&2
   echo "preflight: full list of required vars lives in apps/api/.env.production.example" >&2
   exit 1
 fi
 
-echo "preflight: all ${#required_keys[@]} required production env vars set; handing off to uvicorn"
+echo "preflight: all ${#required_keys[@]} required production env vars OK; handing off to uvicorn"
 exit 0

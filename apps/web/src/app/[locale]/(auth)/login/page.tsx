@@ -9,12 +9,22 @@ export default async function LoginPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; auth_error?: string }>;
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
   const t = await getTranslations('auth.login');
-  const { next } = await searchParams;
+  const { next, auth_error: authError } = await searchParams;
+
+  // The /auth/callback handler bounces here with ?auth_error=<code> when
+  // an email confirmation / magic link is expired, already used, or the
+  // code exchange fails. Surface a readable message instead of a silent
+  // redirect so the user knows to request a fresh link.
+  const authErrorMessage = authError
+    ? t.has(`authErrors.${authError}`)
+      ? t(`authErrors.${authError}`)
+      : t('authErrors.generic')
+    : null;
 
   return (
     <Card>
@@ -23,6 +33,14 @@ export default async function LoginPage({
         <CardDescription>{t('subtitle')}</CardDescription>
       </CardHeader>
       <CardContent>
+        {authErrorMessage ? (
+          <div
+            role="alert"
+            className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {authErrorMessage}
+          </div>
+        ) : null}
         <LoginForm nextPath={next ?? '/dashboard'} />
         <p className="mt-4 text-center text-sm text-muted-foreground">
           {t('noAccount')}{' '}
