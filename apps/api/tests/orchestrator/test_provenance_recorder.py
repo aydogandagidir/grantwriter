@@ -206,16 +206,25 @@ async def pool(database_url: str) -> AsyncIterator[asyncpg.Pool]:
 
 
 async def _seed_proposal(conn: asyncpg.Connection) -> uuid.UUID:
-    """Create a minimal proposals row pointing at a throwaway tenant."""
+    """Create a minimal proposals row pointing at a throwaway tenant.
 
+    ``tenants.slug`` is NOT NULL + unique; ``proposals.programme_id`` is
+    an FK to a seeded ``programmes`` row (``horizon_eu_ria``);
+    ``draft``/``created_by`` are left to their defaults (``'{}'`` /
+    nullable per migration 20260510130000) so the recorder can write
+    provenance rows against a real proposal.
+    """
+
+    suffix = uuid.uuid4()
     tenant_id = await conn.fetchval(
-        "insert into tenants(name, plan) values ($1, 'starter') returning id",
-        f"saga-prov-tenant-{uuid.uuid4()}",
+        "insert into tenants(name, slug) values ($1, $2) returning id",
+        f"saga-prov-tenant-{suffix}",
+        f"saga-prov-{suffix}",
     )
     proposal_id = await conn.fetchval(
         """
-        insert into proposals(tenant_id, program_id, title, language, status)
-        values ($1, 'tubitak_1501', 'Saga prov test', 'tr', 'draft_in_progress')
+        insert into proposals(tenant_id, programme_id, title, language, status)
+        values ($1, 'horizon_eu_ria', 'Saga prov test', 'tr', 'draft_complete')
         returning id
         """,
         tenant_id,
