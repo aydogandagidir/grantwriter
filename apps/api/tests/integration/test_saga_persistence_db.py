@@ -103,15 +103,30 @@ def _ok(agent_id: str, output: dict[str, Any]) -> AgentOutput:
     return AgentOutput(agent_id=agent_id, status="completed", output=output)
 
 
-def _build_agents(*, recommendation: str = "proceed") -> dict[str, BaseAgent]:
+def _fail(agent_id: str) -> AgentOutput:
+    return AgentOutput(
+        agent_id=agent_id,
+        status="failed",
+        output={},
+        metadata={"error": "stub failure"},
+    )
+
+
+def _build_agents(
+    *, recommendation: str = "proceed", fail: str | None = None
+) -> dict[str, BaseAgent]:
     """All seven agents as deterministic stubs.
 
     ``recommendation`` flips the hallucination hunter between the happy
     path (``proceed`` → ``draft_complete``) and the blocking path
     (``block_export`` → ``draft_complete_with_issues``).
+
+    ``fail`` overrides one agent with a ``status="failed"`` output to
+    exercise the saga's failure branches (writer failure →
+    ``failed_recoverable``, call-analyst failure → ``failed``).
     """
 
-    return {
+    agents: dict[str, BaseAgent] = {
         "call_analyst": StubAgent(
             "call_analyst", _ok("call_analyst", {"key_terms_to_use": []})
         ),
@@ -154,6 +169,9 @@ def _build_agents(*, recommendation: str = "proceed") -> dict[str, BaseAgent]:
             _ok("hallucination_hunter", {"recommendation": recommendation}),
         ),
     }
+    if fail is not None:
+        agents[fail] = StubAgent(fail, _fail(fail))
+    return agents
 
 
 def _expected_provenance_count() -> int:
@@ -454,5 +472,94 @@ async def test_saga_rerun_is_idempotent_for_provenance(
                 proposal_id,
             )
             assert versions == 2
+        finally:
+            await _cleanup(conn, tenant_id=tenant_id, user_id=user_id)
+
+
+async def test_writer_failure_persists_failed_recoverable(
+    live_db_pool: asyncpg.Pool,
+) -> None:
+    """A failed writer routes the saga to ``failed_recoverable`` — and
+    that status must actually persist (migration 20260629120000 added it
+    to proposals_status_check; before the fix this raised
+    CheckViolationError at _update_status). The failure path writes ONLY
+    the status: no draft, no provenance, no snapshot.
+    """
+
+    async with live_db_pool.acquire() as conn:
+        tenant_id, user_id, proposal_id = await _seed_owned_proposal(conn)
+        try:
+            publisher = SSEPublisher(proposal_id)
+            result = await DraftGenerator(
+                proposal_id=proposal_id,
+                agents=_build_agents(fail="excellence_writer"),
+                publisher=publisher,
+                conn=conn,
+            ).run()
+
+            assert result.status == "failed_recoverable"
+            assert (
+                await conn.fetchval(
+                    "select status from proposals where id = $1", proposal_id
+                )
+                == "failed_recoverable"
+            )
+            # Failure path persists nothing beyond the status.
+            assert (
+                await conn.fetchval(
+                    "select count(*) from proposal_provenance where proposal_id = $1",
+                    proposal_id,
+                )
+                == 0
+            )
+            assert (
+                await conn.fetchval(
+                    "select count(*) from proposal_versions where proposal_id = $1",
+                    proposal_id,
+                )
+                == 0
+            )
+            # An error SSE event is published with recoverable=True.
+            error_events = [e for e in publisher.events if e["event"] == "error"]
+            assert error_events, [e["event"] for e in publisher.events]
+            assert error_events[-1]["data"]["recoverable"] is True
+        finally:
+            await _cleanup(conn, tenant_id=tenant_id, user_id=user_id)
+
+
+async def test_call_analyst_failure_persists_failed(
+    live_db_pool: asyncpg.Pool,
+) -> None:
+    """A failed Call Analyst is unrecoverable → status ``failed`` (also
+    added to the CHECK by migration 20260629120000). recoverable=False."""
+
+    async with live_db_pool.acquire() as conn:
+        tenant_id, user_id, proposal_id = await _seed_owned_proposal(conn)
+        try:
+            publisher = SSEPublisher(proposal_id)
+            result = await DraftGenerator(
+                proposal_id=proposal_id,
+                agents=_build_agents(fail="call_analyst"),
+                publisher=publisher,
+                conn=conn,
+            ).run()
+
+            assert result.status == "failed"
+            assert (
+                await conn.fetchval(
+                    "select status from proposals where id = $1", proposal_id
+                )
+                == "failed"
+            )
+            assert (
+                await conn.fetchval(
+                    "select count(*) from proposal_provenance where proposal_id = $1",
+                    proposal_id,
+                )
+                == 0
+            )
+            error_events = [e for e in publisher.events if e["event"] == "error"]
+            assert error_events, [e["event"] for e in publisher.events]
+            assert error_events[-1]["data"]["recoverable"] is False
         finally:
             await _cleanup(conn, tenant_id=tenant_id, user_id=user_id)
