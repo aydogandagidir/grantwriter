@@ -528,6 +528,10 @@ export type ProposalStatus =
   | 'brief_complete'
   | 'generating'
   | 'draft_complete'
+  // Saga-managed terminal states (DraftGenerator persists these).
+  | 'draft_complete_with_issues'
+  | 'failed_recoverable'
+  | 'failed'
   | 'in_review'
   | 'validated'
   | 'exported'

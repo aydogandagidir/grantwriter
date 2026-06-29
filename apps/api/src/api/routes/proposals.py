@@ -123,6 +123,12 @@ ProposalStatus = Literal[
     "brief_complete",
     "generating",
     "draft_complete",
+    # Saga-managed terminal states (see DraftStatus in
+    # src/orchestrator/draft_generator.py). Persisted by the saga, so the
+    # read model + the DB CHECK must accept them.
+    "draft_complete_with_issues",
+    "failed_recoverable",
+    "failed",
     "in_review",
     "validated",
     "exported",
