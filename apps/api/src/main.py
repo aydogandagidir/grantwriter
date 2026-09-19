@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from src.api.routes.audit import router as audit_router
 from src.api.routes.billing import router as billing_router
@@ -76,6 +77,62 @@ def _resolve_version(fallback: str) -> str:
     except PackageNotFoundError:
         return fallback or "0.1.0"
     return installed or fallback or "0.1.0"
+
+
+async def _probe_db_health(app: FastAPI) -> tuple[bool, dict[str, Any]]:
+    """Run the ``/health/db`` check and return ``(healthy, detail)``.
+
+    Reuses the exact same lazy-init + ``SELECT 1`` logic as the standalone
+    ``/health/db`` endpoint so the aggregate ``/health/ready`` probe stays
+    in lock-step with the DB signal operators already trust. The ``detail``
+    dict mirrors the ``db`` block of that endpoint's body.
+    """
+
+    # Local import mirrors /health/db: keeps try_init_pool (and its FastAPI
+    # dependency) out of the module-level import graph and lets tests
+    # monkeypatch the symbol at its source module.
+    from src.core.db import try_init_pool
+
+    pool = await try_init_pool(app)
+    if pool is None:
+        return False, {
+            "available": False,
+            "init_error": getattr(app.state, "db_pool_init_error", "unknown"),
+        }
+    try:
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+    # Catch-all for the same reasons as /health/db: any acquire/query
+    # failure means "DB unhappy" to a readiness probe.
+    except Exception as exc:
+        return False, {"available": False, "runtime_error": f"{type(exc).__name__}: {exc}"}
+    return True, {"available": True}
+
+
+def _probe_worker_health() -> tuple[bool, dict[str, Any]]:
+    """Run the ``/health/worker`` check and return ``(healthy, detail)``.
+
+    Mirrors the standalone ``/health/worker`` endpoint's classification of
+    the broker broadcast result. Kept sync (like that endpoint) because
+    ``ping_workers`` BLOCKS up to its timeout; callers run it on the
+    threadpool so the event loop never stalls.
+    """
+
+    # Local import mirrors /health/worker so tests monkeypatch
+    # ``src.tasks.celery_app.ping_workers`` at its source module.
+    from src.tasks.celery_app import ping_workers
+
+    try:
+        workers = ping_workers(timeout=1.0)
+    # Catch-all: kombu/redis transport errors all mean "fleet unreachable".
+    except Exception as exc:
+        return False, {"available": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    if workers is None:
+        return False, {"available": False, "reason": "broker_not_configured"}
+    if not workers:
+        return False, {"available": False, "reason": "no_workers_responded"}
+    return True, {"available": True, "workers": workers, "count": len(workers)}
 
 
 @asynccontextmanager
@@ -305,6 +362,37 @@ def create_app() -> FastAPI:
                 "worker": {"available": True, "workers": workers, "count": len(workers)},
             },
         )
+
+    @app.get("/health/ready", tags=["meta"])
+    async def health_ready(request: Request) -> JSONResponse:
+        """Aggregate readiness probe — 200 only when BOTH the database and
+        the Celery worker fleet are healthy, 503 otherwise.
+
+        Where ``/health`` answers "is the process up?", this endpoint
+        answers "can the API actually serve production traffic
+        end-to-end?" by combining the exact same DB and worker signals as
+        ``/health/db`` and ``/health/worker``. The response nests each
+        dependency's detail block and, when degraded, lists every failing
+        dependency under ``unhealthy`` so on-call can triage from the body
+        alone.
+
+        The blocking ``ping_workers`` broker broadcast runs on the
+        threadpool so the async handler never stalls the event loop —
+        same decoupling rationale as the sync ``/health/worker`` handler.
+        """
+
+        db_ok, db_detail = await _probe_db_health(request.app)
+        worker_ok, worker_detail = await run_in_threadpool(_probe_worker_health)
+
+        unhealthy = [name for name, ok in (("db", db_ok), ("worker", worker_ok)) if not ok]
+        body: dict[str, Any] = {
+            "status": "ok" if not unhealthy else "degraded",
+            "db": db_detail,
+            "worker": worker_detail,
+        }
+        if unhealthy:
+            body["unhealthy"] = unhealthy
+        return JSONResponse(status_code=200 if not unhealthy else 503, content=body)
 
     @app.get("/health/sentry-test", tags=["meta"])
     async def health_sentry_test(settings: SettingsDep) -> dict[str, Any]:

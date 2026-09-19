@@ -31,6 +31,7 @@
 | `GET /health` | Process ayakta, uvicorn cevap veriyor | ❌ Hayır |
 | `GET /health/db` | DB pool açık + `SELECT 1` çalışıyor | ✅ Evet |
 | `GET /health/worker` | Celery worker broker üzerinden ping'e pong veriyor (generate/export kuyruğu canlı) | ❌ (Redis'e dokunur) |
+| `GET /health/ready` | **Toplu hazırlık:** DB **ve** worker birlikte sağlıklıysa 200; biri bile down ise 503. Gövdedeki `unhealthy` listesi hangi bağımlılığın down olduğunu söyler (`db`, `worker`) | ✅ + Redis (ikisine de dokunur) |
 
 **Tanı için ikisini birlikte okuyun:**
 

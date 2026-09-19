@@ -183,9 +183,7 @@ async def test_health_db_self_heals_when_lazy_init_succeeds(
     assert app.state.db_pool_init_error is None
 
 
-async def test_health_db_returns_200_when_pool_acquires(
-    app: FastAPI, client: AsyncClient
-) -> None:
+async def test_health_db_returns_200_when_pool_acquires(app: FastAPI, client: AsyncClient) -> None:
     """Healthy pool ⇒ 200 + ``db.available = True``.
 
     The fake pool's ``acquire()`` returns an async CM yielding a fake
@@ -207,9 +205,7 @@ async def test_health_db_returns_200_when_pool_acquires(
     conn.fetchval.assert_awaited_once_with("SELECT 1")
 
 
-async def test_health_db_returns_503_on_runtime_error(
-    app: FastAPI, client: AsyncClient
-) -> None:
+async def test_health_db_returns_503_on_runtime_error(app: FastAPI, client: AsyncClient) -> None:
     """Pool present but ``acquire()`` blows up ⇒ degraded + runtime_error.
 
     Models the "DB went away at runtime" path (network flap, Supabase
@@ -234,9 +230,7 @@ async def test_health_db_returns_503_on_runtime_error(
     assert "upstream down" in body["db"]["runtime_error"]
 
 
-async def test_health_remains_200_even_when_db_pool_none(
-    app: FastAPI, client: AsyncClient
-) -> None:
+async def test_health_remains_200_even_when_db_pool_none(app: FastAPI, client: AsyncClient) -> None:
     """The whole point of the graceful-degradation contract.
 
     ``/health`` is the process-liveness probe — it must NEVER return 503
@@ -349,3 +343,145 @@ async def test_health_remains_200_when_worker_unavailable(
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+# ── /health/ready — aggregate readiness probe (BLU-5) ───────────────────
+#
+# /health/ready is 200 ONLY when both the DB and the Celery worker fleet
+# are healthy, and 503 when either is down — the single signal an
+# orchestrator/load-balancer points at to decide "route production traffic
+# here?". These tests exercise every meaningful cell of the 2×2
+# {db healthy/unhealthy} × {worker healthy/unhealthy} matrix and assert the
+# body names each unhealthy dependency. They reuse the same fakes as the
+# /health/db + /health/worker suites above (no real pool, no real broker).
+
+
+def _make_db_healthy(app: FastAPI) -> None:
+    """Wire ``app.state`` so ``try_init_pool`` returns a pool whose
+    ``SELECT 1`` resolves — the healthy /health/db path."""
+
+    conn = MagicMock()
+    conn.fetchval = AsyncMock(return_value=1)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=_FakeAcquireCM(conn))
+    app.state.db_pool = pool
+    app.state.db_pool_init_error = None
+
+
+def _make_db_unhealthy(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No pool + no DSN to retry ⇒ ``try_init_pool`` returns None — the
+    degraded /health/db path."""
+
+    settings_stub = MagicMock()
+    settings_stub.database_url = None
+    monkeypatch.setattr("src.core.db.get_settings", lambda: settings_stub)
+    app.state.db_pool = None
+    app.state.db_pool_init_error = "DATABASE_URL not set"
+
+
+async def test_health_ready_returns_200_when_db_and_worker_healthy(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_db_healthy(app)
+    monkeypatch.setattr(
+        "src.tasks.celery_app.ping_workers",
+        lambda timeout: ["celery@grantwriter-worker"],
+    )
+
+    response = await client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "db": {"available": True},
+        "worker": {
+            "available": True,
+            "workers": ["celery@grantwriter-worker"],
+            "count": 1,
+        },
+    }
+
+
+async def test_health_ready_returns_503_when_only_worker_unhealthy(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_db_healthy(app)
+    monkeypatch.setattr("src.tasks.celery_app.ping_workers", lambda timeout: [])
+
+    response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["db"]["available"] is True
+    assert body["worker"]["available"] is False
+    assert body["worker"]["reason"] == "no_workers_responded"
+    # Only the worker is named — the DB must NOT be flagged.
+    assert body["unhealthy"] == ["worker"]
+
+
+async def test_health_ready_returns_503_when_only_db_unhealthy(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_db_unhealthy(app, monkeypatch)
+    monkeypatch.setattr(
+        "src.tasks.celery_app.ping_workers",
+        lambda timeout: ["celery@grantwriter-worker"],
+    )
+
+    response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["db"]["available"] is False
+    assert body["db"]["init_error"] == "DATABASE_URL not set"
+    assert body["worker"]["available"] is True
+    assert body["unhealthy"] == ["db"]
+
+
+async def test_health_ready_returns_503_when_both_unhealthy(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_db_unhealthy(app, monkeypatch)
+    monkeypatch.setattr("src.tasks.celery_app.ping_workers", lambda timeout: None)
+
+    response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["db"]["available"] is False
+    assert body["worker"]["available"] is False
+    assert body["worker"]["reason"] == "broker_not_configured"
+    # Both dependencies flagged, DB first then worker.
+    assert body["unhealthy"] == ["db", "worker"]
+
+
+async def test_health_ready_reports_db_runtime_error_and_broker_error(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Runtime-failure variant: pool present but ``acquire`` blows up, and
+    the broker broadcast raises. Both typed errors must reach the body so
+    on-call can triage without pulling logs."""
+
+    boom = ConnectionError("upstream down")
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=_FakeAcquireCM(None, raise_on_enter=boom))
+    app.state.db_pool = pool
+    app.state.db_pool_init_error = None
+
+    def _broker_boom(timeout: float) -> list[str] | None:
+        raise ConnectionError("kv down")
+
+    monkeypatch.setattr("src.tasks.celery_app.ping_workers", _broker_boom)
+
+    response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert "ConnectionError" in body["db"]["runtime_error"]
+    assert "upstream down" in body["db"]["runtime_error"]
+    assert "ConnectionError" in body["worker"]["error"]
+    assert "kv down" in body["worker"]["error"]
+    assert body["unhealthy"] == ["db", "worker"]
